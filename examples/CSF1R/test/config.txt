@@ -1,0 +1,7 @@
+receptor=../fix/3KRJA_receptor.pdbqt
+center_x=8.805
+center_y=28.266
+center_z=3.639
+size_x=26.926
+size_y=26.669
+size_z=29.113

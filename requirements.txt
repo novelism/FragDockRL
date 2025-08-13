@@ -1,0 +1,6 @@
+numpy==1.26
+pandas==2.3.1
+rdkit==2023.09.6
+smina==2020.12.10
+torch==2.7.1
+git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3.git
