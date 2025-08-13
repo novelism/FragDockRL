@@ -19,11 +19,13 @@ It combines **building block assembly** with **tethered docking** to efficiently
 
 ### Using conda (recommended)
 conda env create -f environment.yml
+
 conda activate fragdockrl_env
 
 
 ### Using pip
-```bash
+```bash```
+
 pip install git+https://github.com/novelism/fragdockrl.git
 
 
@@ -47,9 +49,9 @@ For detailed examples, please refer to the example projects provided under the `
 - `data_dir`: Path to the directory containing your prepared data files.  
 - Inside the `params_dict` dictionary, update the following parameters as needed:
   - `'start_smi'`: SMILES code of the starting building block (e.g., `'NCc1ccncc1'`).  
-    - `'smi_ref_com'`: Core SMILES code to be used as reference (e.g., `'Cc1ccncc1'`).  
-      - `'ref_atom_idx_ref'`: Index of the atom in the core SMILES whose coordinates will be fixed during docking (starting from 0). Note this corresponds to the rotamer unit in the PDBQT, not an individual atom.  
-        - `'num_sub_proc'`: Number of subprocesses for parallel computation used in docking (e.g., `16`).
+  - `'smi_ref_com'`: Core SMILES code to be used as reference (e.g., `'Cc1ccncc1'`).  
+  - `'ref_atom_idx_ref'`: Index of the atom in the core SMILES whose coordinates will be fixed during docking (starting from 0). Note this corresponds to the rotamer unit in the PDBQT, not an individual atom.  
+  - `'num_sub_proc'`: Number of subprocesses for parallel computation used in docking (e.g., `16`).
 
 ## Steps to Run
 
