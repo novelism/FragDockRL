@@ -6,7 +6,7 @@ Licensed under a Custom Non-Commercial License. Commercial use requires permissi
 
 **FragDockRL: A Reinforcement Learning Framework for Fragment-Based Ligand Design via Building Block Assembly and Tethered Docking**  
 Author: Seung Hwan Hong et al.
-Status: Preprint on arXiv (upcoming)
+Status: Preprint on bioRxiv (https://www.biorxiv.org/content/10.1101/2025.08.12.670002v1)
 
 
 ## Overview
