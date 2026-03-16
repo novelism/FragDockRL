@@ -148,112 +148,101 @@ def soft_update(target_net, online_net, tau):
 
 
 def train(td_replay_buffer, mc_replay_buffer, online_net, target_net, device,
-          optimizer, loss_function, bb_fp, bb_idx_dict, gamma,
-          batch_size_td, batch_size_mc, batch_size_bb,
-          td_mc_loss_ratio=0.5, tau=0.005):
+          optimizer, loss_function, bb_fp, bb_idx_dict, gamma, batch_size_bb,
+          batch_size_train=128, max_iter=12, tau=0.005):
     """
-    Train the Q-function using a list of training snapshots.
+    Train with fixed total batch size and fixed max_iter.
 
-    Parameters
-    ----------
-    shot_list : list
-        List of training snapshots, each containing state, action, reward, and related info.
-    online_net : torch.nn.Module
-        Neural network model to be trained (Q-function approximator).
-    target_net : torch.nn.Module
-        Target network used for stable Q-value estimation; updated from `online_net` after each iteration.
-    device : torch.device
-        Device ('cpu' or 'cuda') for computation.
-    bb_fp : torch.Tensor
-        Fingerprints of building blocks.
-    bb_idx_dict : dict
-        Mapping from building block IDs to their indices in `bb_fp`.
-    batch_size_train : int
-        Batch size for training iterations.
-    batch_size_bb : int
-        Batch size used for Q-value computation inside the network.
-    optimizer : torch.optim.Optimizer
-        Optimizer for neural network parameter updates.
-    loss_function : callable
-        Loss function to minimize (e.g., MSELoss).
-    gamma : float
-        Discount factor for future rewards.
-    max_iter : int, optional
-        Maximum number of training iterations over the dataset (default is 4).
-
-    Returns
-    -------
-    list
-        List of tuples with training iteration number and corresponding loss value.
+    Design
+    ------
+    - total samples in this train phase: max_iter * batch_size_train
+    - MC usage is allowed up to half of that total
+    - batch_size_mc is determined from the total MC budget
+    - batch_size_td = batch_size_train - batch_size_mc
+    - MC is shuffled once and consumed by iteration slice
+    - z_bb is recalculated every iteration
     """
 
     num_td_buffer = len(td_replay_buffer)
     num_mc_buffer = len(mc_replay_buffer)
 
-    idx_td = np.arange(num_td_buffer)
-    np.random.shuffle(idx_td)
+    if num_td_buffer == 0 or batch_size_train <= 0 or max_iter <= 0:
+        return []
+
+    # ---- decide batch sizes from whole train-phase budget ----
+    total_train_samples = max_iter * batch_size_train
+    mc_total_cap = min(num_mc_buffer, total_train_samples // 2)
+
+    batch_size_mc = mc_total_cap // max_iter
+    batch_size_td = batch_size_train - batch_size_mc
+
+    # ---- MC shuffle once ----
     idx_mc = np.arange(num_mc_buffer)
     np.random.shuffle(idx_mc)
 
-    if num_mc_buffer > 0 and batch_size_mc > 0:
-        max_iter = int(np.ceil(num_mc_buffer / batch_size_mc))
-    elif num_td_buffer > 0 and batch_size_td > 0:
-        max_iter = int(np.ceil(num_td_buffer / batch_size_td))
+    # ---- internal max_iter to avoid empty MC slice ----
+    if batch_size_mc > 0:
+        max_iter_internal = min(max_iter, int(
+            np.ceil(num_mc_buffer / batch_size_mc)))
     else:
-        max_iter = 0
-        return []
+        max_iter_internal = max_iter
 
-    loss_list = list()
-    for iteration in range(0, max_iter):
+    loss_list = []
 
-        # MC
-        if td_mc_loss_ratio != 1 and batch_size_mc > 0:
-            ini = iteration*batch_size_mc
-            fin = (iteration+1)*batch_size_mc
-            idx_sample = idx_mc[ini:fin]
-            mc_shot_batch = [mc_replay_buffer[i] for i in idx_sample]
+    for iteration in range(max_iter_internal):
 
-            data_mc = extract_mc(mc_shot_batch, bb_fp, bb_idx_dict, device)
-            x_state_mc, x_action_mc, y_g_mc = data_mc
-#            print(x_state_mc.shape)
-#            print(x_action_mc.shape)
+        # ---- TD sampling ----
+        replace_td = (batch_size_td > num_td_buffer)
+        idx_td = np.random.choice(
+            num_td_buffer, batch_size_td, replace=replace_td)
+        td_batch = [td_replay_buffer[i] for i in idx_td]
 
+        # ---- MC sampling by iteration slice ----
+        if batch_size_mc > 0:
+            ini = iteration * batch_size_mc
+            fin = (iteration + 1) * batch_size_mc
+            idx_mc_batch = idx_mc[ini:fin]
+            mc_batch = [mc_replay_buffer[i] for i in idx_mc_batch]
+        else:
+            mc_batch = []
+
+        # ---- recompute z_bb every iteration ----
+        z_bb = cal_z_bb(target_net, device, bb_fp, batch_size_bb)
+
+        # ---- TD loss ----
+        x_state_td, x_action_td, reward_td, q_new_max_td = extract_td(
+            target_net, device, td_batch, bb_fp, bb_idx_dict, z_bb, batch_size_bb
+        )
+        qsa_td = online_net.forward(x_state_td, x_action_td)
+        y_td = reward_td + gamma * q_new_max_td
+        loss_td = loss_function(qsa_td, y_td)
+
+        # ---- MC loss ----
+        if batch_size_mc > 0:
+            x_state_mc, x_action_mc, y_g_mc = extract_mc(
+                mc_batch, bb_fp, bb_idx_dict, device
+            )
             qsa_mc = online_net.forward(x_state_mc, x_action_mc)
             loss_mc = loss_function(qsa_mc, y_g_mc)
+
+            loss = (batch_size_td * loss_td +
+                    batch_size_mc * loss_mc) / batch_size_train
         else:
-            loss_mc = torch.tensor(0.0, device=device)
+            loss_mc = None
+            loss = loss_td
 
-        # TD
-        if td_mc_loss_ratio != 0 and batch_size_td > 0:
-            ini = iteration*batch_size_td
-            fin = (iteration+1)*batch_size_td
-            idx_sample = idx_td[ini:fin]
-#            idx_sample = np.random.choice(num_td_buffer,
-#                                            batch_size_td, replace=False)
-            td_shot_batch = [td_replay_buffer[i] for i in idx_sample]
-
-            z_bb = cal_z_bb(target_net, device, bb_fp, batch_size_bb)
-            data_td = extract_td(target_net, device, td_shot_batch,
-                                 bb_fp, bb_idx_dict, z_bb, batch_size_bb)
-            x_state_td, x_action_td, reward_td, q_new_max_td = data_td
-
-            qsa_td = online_net.forward(x_state_td, x_action_td)
-            y_td = reward_td + gamma*q_new_max_td
-            loss_td = loss_function(qsa_td, y_td)
-        else:
-            loss_td = torch.tensor(0.0, device=device)
-
+        # ---- optimize ----
         optimizer.zero_grad()
-        loss = td_mc_loss_ratio*loss_td + (1.0-td_mc_loss_ratio)*loss_mc
-#        loss.backward(retain_graph=True)
         loss.backward(retain_graph=False)
-
         optimizer.step()
-
-#        target_net.load_state_dict(online_net.state_dict())
         soft_update(target_net, online_net, tau=tau)
-        loss_list.append((iteration, loss_td.detach().cpu(),
-                          loss_mc.detach().cpu()))
 
-#        print(iteration, loss.data.cpu())
+        loss_list.append((
+            iteration,
+            float(loss_td.detach().cpu()),
+            float(loss_mc.detach().cpu()) if loss_mc is not None else 0.0,
+            batch_size_td,
+            batch_size_mc
+        ))
+
     return loss_list

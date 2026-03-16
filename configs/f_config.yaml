@@ -35,10 +35,9 @@ model:
 training:
   gamma: 0.9                     # Discount factor for future rewards
   tau: 0.005                     # Soft update rate for the target network
-  batch_size_td: 128             # Batch size for TD (temporal difference) updates
-  batch_size_mc: 128             # Batch size for MC (terminal return) updates
+  batch_size_train: 128          # Batch size for training
+  max_iter: 12                   # maximum iteration for training
   batch_size_bb: 5096            # Batch size used for building block evaluation
-  td_mc_loss_ratio: 0.5          # Weighting ratio between TD loss and MC loss
   max_td_buffer: 40000           # Maximum replay buffer size for TD samples
   max_mc_buffer: null            # If null, use only the current generation MC samples (no accumulation)
 

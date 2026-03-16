@@ -136,6 +136,22 @@ def build_network_and_optimizer(model_cfg, device):
     return online_net, target_net, optimizer, loss_function
 
 
+def dedup_episodes_by_smiles(ep_list_batch, smi_list_batch):
+    """Keep only the first episode for each unique terminal SMILES."""
+    seen_smi = set()
+    ep_list_batch_new = []
+    smi_list_batch_new = []
+
+    for ep, smi in zip(ep_list_batch, smi_list_batch):
+        if smi in seen_smi:
+            continue
+        seen_smi.add(smi)
+        ep_list_batch_new.append(ep)
+        smi_list_batch_new.append(smi)
+
+    return ep_list_batch_new, smi_list_batch_new
+
+
 def cal_frag_dock_rl(config, device, online_net, target_net,
                      optimizer, loss_function):
     """Run FragDockRL training using sectioned YAML config."""
@@ -168,10 +184,10 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
     temp_reduce = search_cfg["temp_reduce"]
     temperature_min = search_cfg["temperature_min"]
 
-    batch_size_td = training_cfg["batch_size_td"]
-    batch_size_mc = training_cfg["batch_size_mc"]
+    batch_size_train = training_cfg["batch_size_train"]
+    max_iter = training_cfg["max_iter"]
+
     batch_size_bb = training_cfg["batch_size_bb"]
-    td_mc_loss_ratio = training_cfg["td_mc_loss_ratio"]
     tau = training_cfg["tau"]
     gamma = training_cfg["gamma"]
     max_td_buffer = training_cfg["max_td_buffer"]
@@ -248,9 +264,17 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
         st = time.time()
         start_idx = i_gen * num_ep_batch
 
-        ep_list_batch0 = ep_searcher.search_ep_batch(
-            m_start, temperature=temperature
-        )
+        ep_list_batch00, smi_list_batch00 = ep_searcher.search_ep_batch(
+            m_start, temperature=temperature)
+        ep_list_batch0, smi_list_batch0 = dedup_episodes_by_smiles(
+            ep_list_batch00, smi_list_batch00)
+
+        n_before = len(ep_list_batch00)
+        n_after = len(ep_list_batch0)
+        n_removed = n_before - n_after
+        print(f"terminal dedup: {n_before} -> {n_after} (removed {n_removed})")
+        fp_log.write(
+            f"terminal dedup: {n_before} -> {n_after} (removed {n_removed})\n")
 
         et1 = time.time()
         print("search time:", et1 - st)
@@ -293,17 +317,16 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
         num_td_buffer = len(td_replay_buffer)
         num_mc_buffer = len(mc_replay_buffer)
         print("mc buffer:", num_mc_buffer, "td buffer:", num_td_buffer)
-        fp_log.write(f"mc buffer: {num_mc_buffer:.3f} td buffer: {num_td_buffer:.3f}\n")
+        fp_log.write(
+            f"mc buffer: {num_mc_buffer:.3f} td buffer: {num_td_buffer:.3f}\n")
 
         loss_list = rl_utils.train(
             td_replay_buffer, mc_replay_buffer,
             online_net, target_net, device,
             optimizer, loss_function,
             bb_fp, bb_idx_dict, gamma,
-            batch_size_td, batch_size_mc, batch_size_bb,
-            td_mc_loss_ratio=td_mc_loss_ratio,
-            tau=tau,
-        )
+            batch_size_bb, batch_size_train=batch_size_train,
+            max_iter=max_iter, tau=tau)
 
         for loss_g in loss_list:
             line_out = "iter: %d TD_loss: %.5f MC_loss: %.5f" % loss_g
