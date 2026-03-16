@@ -386,8 +386,9 @@ class EpisodeSearcher():
 
             if done:
                 break
+        smi_terminal = Chem.MolToSmiles(m)
 
-        return ep_list
+        return ep_list, smi_terminal
 
     def search_ep_batch(self, m_start, temperature=1.0, *, num_ep_batch=None):
         """Generate a batch of episodes from the same starting molecule."""
@@ -405,8 +406,10 @@ class EpisodeSearcher():
         z_bb = rl_utils.cal_z_bb(net, device, bb_fp, batch_size_bb)
 
         ep_list_batch = list()
+        smi_list_batch = list()
         for _ in range(num_ep_batch):
             m = copy.copy(m_start)
-            ep = self.run_ep(m, z_bb, temperature=temperature)
+            ep, smi = self.run_ep(m, z_bb, temperature=temperature)
             ep_list_batch.append(ep)
-        return ep_list_batch
+            smi_list_batch.append(smi)
+        return ep_list_batch, smi_list_batch

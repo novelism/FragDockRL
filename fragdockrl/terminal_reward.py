@@ -125,7 +125,7 @@ def worker(q, m_ref_dock, cut_para_dict, dock_para_dict, return_dict):
             break
 
         ep_idx, m_new = qqq
-
+        smi_terminal = Chem.MolToSmiles(m_new)
         mol_wt = Descriptors.MolWt(m_new)
         logp = Descriptors.MolLogP(m_new)
         num_hd = Descriptors.NumHDonors(m_new)
@@ -137,6 +137,7 @@ def worker(q, m_ref_dock, cut_para_dict, dock_para_dict, return_dict):
         num_heavy_atoms = m_new.GetNumHeavyAtoms()
 
         p_dict = {
+            'smi_terminal':smi_terminal,
             'mol_wt': mol_wt,
             'num_rb': num_rb,
             'logp': logp,
