@@ -329,7 +329,9 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
             max_iter=max_iter, tau=tau)
 
         for loss_g in loss_list:
-            line_out = "iter: %d TD_loss: %.5f MC_loss: %.5f" % loss_g
+            it, td_l, mc_l, n_td, n_mc = loss_g
+            line_out = "iter: %d TD_loss: %.5f MC_loss: %.5f TD: %d MC: %d" % (
+                it, td_l, mc_l, n_td, n_mc)
             print(line_out)
             fp_log.write(line_out+'\n')
 

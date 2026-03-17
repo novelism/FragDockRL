@@ -35,8 +35,8 @@ model:
 training:
   gamma: 0.9                     # Discount factor for future rewards
   tau: 0.005                     # Soft update rate for the target network
-  batch_size_train: 128          # Batch size for training
-  max_iter: 12                   # maximum iteration for training
+  batch_size_train: 256          # Batch size for training
+  max_iter: 7                    # maximum iteration for training
   batch_size_bb: 5096            # Batch size used for building block evaluation
   max_td_buffer: 40000           # Maximum replay buffer size for TD samples
   max_mc_buffer: null            # If null, use only the current generation MC samples (no accumulation)
@@ -45,9 +45,9 @@ search:
   penalty_score: -2.0            # Score penalty applied when constraints are violated
   max_step: 4                    # Maximum number of synthesis steps in an episode
   num_ep_batch: 200              # Number of episodes generated per batch
-  temperature0: 0.95             # Initial exploration temperature
+  temperature0: 0.90             # Initial exploration temperature
   temp_reduce: 0.99              # Temperature decay factor per cycle
-  temperature_min: 0.05          # Minimum temperature allowed during exploration
+  temperature_min: 0.10          # Minimum temperature allowed during exploration
 
 docking:
   tdock: "rdock"                 # Docking engine (rdock or smina)
