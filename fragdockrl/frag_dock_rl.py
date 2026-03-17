@@ -1,113 +1,199 @@
 #!/usr/bin/env python
 
 import os
-# import sys
+import time
+import pickle
 import numpy as np
+import pandas as pd
+import yaml
 import torch
 import torch.nn as nn
 import torch.optim as optim
-# import copy
-import pandas as pd
 from rdkit import Chem
-# from rdkit.Chem import AllChem
-# from rdkit.Chem import Descriptors
-import time
-import pickle
 
-from . import final_reward, model, rl_utils, utils
-# import tether_dock
+from . import terminal_reward, model, rl_utils, utils, episode_search
 
 
-def save_ep(ep_dir, p_list, ep_simple_list, shot_list, ep_tree_dict):
+def save_ep(ep_dir, i_gen, ep_property_batch, td_replay_batch,
+            mc_replay_batch, ep_simple_list):
+    """Save episode-related data for one generation."""
+    ep_property_batch_file = f"{ep_dir}/ep_property_{i_gen}.pkl"
+    td_shot_file = f"{ep_dir}/td_shot_{i_gen}.pkl"
+    mc_shot_file = f"{ep_dir}/mc_shot_{i_gen}.pkl"
+    ep_simple_file = f"{ep_dir}/ep_simple.pkl"
 
-    score_list_file = ep_dir + '/score_list.npy'
-    ep_file = ep_dir + '/ep_simple.pkl'
-    snap_shot_file = ep_dir + '/snap_shot.pkl'
-    ep_tree_file = ep_dir + '/ep_tree.pkl'
+    with open(ep_property_batch_file, "wb") as f:
+        pickle.dump(ep_property_batch, f)
 
-    np.save(score_list_file, p_list)
+    with open(td_shot_file, "wb") as f:
+        pickle.dump(td_replay_batch, f)
 
-    with open(ep_file, 'wb') as f:
+    with open(mc_shot_file, "wb") as f:
+        pickle.dump(mc_replay_batch, f)
+
+    with open(ep_simple_file, "wb") as f:
         pickle.dump(ep_simple_list, f)
 
-    with open(snap_shot_file, 'wb') as f:
-        pickle.dump(shot_list, f)
 
-    with open(ep_tree_file, 'wb') as f:
-        pickle.dump(ep_tree_dict, f)
+def load_ep(ep_dir, i_gen):
+    """Load episode-related data for one generation."""
+    ep_property_batch_file = f"{ep_dir}/ep_property_{i_gen}.pkl"
+    td_shot_file = f"{ep_dir}/td_shot_{i_gen}.pkl"
+    mc_shot_file = f"{ep_dir}/mc_shot_{i_gen}.pkl"
+    ep_simple_file = f"{ep_dir}/ep_simple.pkl"
 
+    with open(ep_property_batch_file, "rb") as f:
+        ep_property_batch_list = pickle.load(f)
 
-def load_ep(ep_dir):
-    score_list_file = ep_dir + '/score_list.npy'
-    ep_file = ep_dir + '/ep_simple.pkl'
-    snap_shot_file = ep_dir + '/snap_shot.pkl'
-    ep_tree_file = ep_dir + '/ep_tree.pkl'
+    with open(td_shot_file, "rb") as f:
+        td_replay_batch = pickle.load(f)
 
-    p_list = np.load(score_list_file)
+    with open(mc_shot_file, "rb") as f:
+        mc_replay_batch = pickle.load(f)
 
-    with open(ep_file, 'rb') as f:
+    with open(ep_simple_file, "rb") as f:
         ep_simple_list = pickle.load(f)
 
-    with open(snap_shot_file, 'rb') as f:
-        shot_list = pickle.load(f)
-
-    with open(ep_tree_file, 'rb') as f:
-        ep_tree_dict = pickle.load(f)
-
-    return p_list, ep_simple_list, shot_list, ep_tree_dict
+    return ep_property_batch_list, td_replay_batch, mc_replay_batch, ep_simple_list
 
 
-def cal_frag_dock_rl(params_dict):
-    ligand_pdb_file = params_dict['ligand_pdb_file']
-    start_smi = params_dict['start_smi']
-    smi_ref_com = params_dict['smi_ref_com']
-    ref_atom_idx_ref = params_dict['ref_atom_idx_ref']
-    num_sub_proc = params_dict['num_sub_proc']
-    ep_dir = params_dict['ep_dir']
-    save_dir = params_dict['save_dir']
-    tmp_dir = params_dict['tmp_dir']
-    penalty_score = params_dict['penalty_score']
-    max_step = params_dict['max_step']
-    num_ep_batch = params_dict['num_ep_batch']
-    batch_size_train = params_dict['batch_size_train']
-    batch_size_search = params_dict['batch_size_search']
-    gamma = params_dict['gamma']
-    max_epoch = params_dict['max_epoch']
-    temperature0 = params_dict['temperature0']
-    temp_reduce = params_dict['temp_reduce']
-    temperature_min = params_dict['temperature_min']
-    cut_para_dict = params_dict['cut_para_dict']
-    penelty_para_dict = params_dict['penelty_para_dict']
-    ligand_pdb_file = params_dict['ligand_pdb_file']
-    building_block_file = params_dict['building_block_file']
-    reaction_file = params_dict['reaction_file']
-    m_bb_file = params_dict['m_bb_file']
-    bb_fp_pkl = params_dict['bb_fp_pkl']
+def load_config(config_file):
+    """Load YAML config file."""
+    with open(config_file, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    return config
 
-    smina_para_dict = params_dict['smina_para_dict']
-    device = params_dict['device']
-    net = params_dict['net']
-    net_2 = params_dict['net_2']
-    optimizer = params_dict['optimizer']
-    loss_function = params_dict['loss_function']
 
-    if not os.path.exists(ep_dir):
-        os.mkdir(ep_dir)
-    if not os.path.exists(save_dir):
-        os.mkdir(save_dir)
+def resolve_path(base_dir, path_str):
+    """Resolve path relative to base_dir unless already absolute."""
+    if path_str is None:
+        return None
+    if os.path.isabs(path_str):
+        return path_str
+    return os.path.join(base_dir, path_str)
 
-    if not os.path.exists(tmp_dir):
-        os.mkdir(tmp_dir)
 
+def get_device(run_cfg):
+    """Create torch.device from run config."""
+    device_cfg = run_cfg.get("device", "auto")
+
+    if device_cfg == "auto":
+        if torch.cuda.is_available():
+            device_num = torch.cuda.current_device()
+            device = torch.device(f"cuda:{device_num}")
+            torch.set_num_threads(2)
+        else:
+            device = torch.device("cpu")
+            torch.set_num_threads(14)
+    else:
+        device = torch.device(device_cfg)
+        if device.type == "cuda":
+            torch.set_num_threads(2)
+        else:
+            torch.set_num_threads(14)
+
+    return device
+
+
+def build_network_and_optimizer(model_cfg, device):
+    """Build online/target networks, optimizer, and loss function."""
+    online_net = model.Net(
+        input_dim=model_cfg["input_dim"],
+        hidden_dim1=model_cfg["hidden_dim1"],
+        num_hidden_layer1=model_cfg["num_hidden_layer1"],
+        latent_dim=model_cfg["latent_dim"],
+        hidden_dim2=model_cfg["hidden_dim2"],
+        num_hidden_layer2=model_cfg["num_hidden_layer2"],
+        output_dim=model_cfg["output_dim"],
+    ).to(device)
+
+    target_net = model.Net(
+        input_dim=model_cfg["input_dim"],
+        hidden_dim1=model_cfg["hidden_dim1"],
+        num_hidden_layer1=model_cfg["num_hidden_layer1"],
+        latent_dim=model_cfg["latent_dim"],
+        hidden_dim2=model_cfg["hidden_dim2"],
+        num_hidden_layer2=model_cfg["num_hidden_layer2"],
+        output_dim=model_cfg["output_dim"],
+    ).to(device)
+
+    target_net.load_state_dict(online_net.state_dict())
+
+    optimizer_name = model_cfg.get("optimizer", "adam").lower()
+    lr = model_cfg["lr"]
+
+    if optimizer_name == "adam":
+        optimizer = optim.Adam(online_net.parameters(), lr=lr)
+    else:
+        raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+
+    loss_name = model_cfg.get("loss_function", "mse").lower()
+    if loss_name == "mse":
+        loss_function = nn.MSELoss()
+    else:
+        raise ValueError(f"Unsupported loss function: {loss_name}")
+
+    return online_net, target_net, optimizer, loss_function
+
+
+def cal_frag_dock_rl(config, device, online_net, target_net,
+                     optimizer, loss_function):
+    """Run FragDockRL training using sectioned YAML config."""
+    run_cfg = config["run"]
+    data_cfg = config["data"]
+    training_cfg = config["training"]
+    search_cfg = config["search"]
+    docking_cfg = config["docking"]
+    cutoff_cfg = config["cutoff"]
+    penalty_cfg = config["penalty"]
+
+    start_smi = run_cfg["start_smi"]
+    num_sub_proc = run_cfg["num_sub_proc"]
+    ep_dir = run_cfg["ep_dir"]
+    save_dir = run_cfg["save_dir"]
+    core_pdb_file = run_cfg.get("core_pdb_file", "mol_ref_core.pdb")
+    log_file = run_cfg.get("log_file", "run_log.txt")
+
+    data_dir = data_cfg["data_dir"]
+    building_block_file = resolve_path(
+        data_dir, data_cfg["building_block_file"])
+    reaction_file = resolve_path(data_dir, data_cfg["reaction_file"])
+    m_bb_file = resolve_path(data_dir, data_cfg["m_bb_file"])
+    bb_fp_pkl = resolve_path(data_dir, data_cfg["bb_fp_pkl"])
+
+    penalty_score = search_cfg["penalty_score"]
+    max_step = search_cfg["max_step"]
+    num_ep_batch = search_cfg["num_ep_batch"]
+    temperature0 = search_cfg["temperature0"]
+    temp_reduce = search_cfg["temp_reduce"]
+    temperature_min = search_cfg["temperature_min"]
+
+    batch_size_td = training_cfg["batch_size_td"]
+    batch_size_mc = training_cfg["batch_size_mc"]
+    batch_size_bb = training_cfg["batch_size_bb"]
+    td_mc_loss_ratio = training_cfg["td_mc_loss_ratio"]
+    tau = training_cfg["tau"]
+    gamma = training_cfg["gamma"]
+    max_td_buffer = training_cfg["max_td_buffer"]
+    max_mc_buffer = training_cfg["max_mc_buffer"]
+    max_epoch = run_cfg["max_epoch"]
+
+    os.makedirs(ep_dir, exist_ok=True)
+    os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(docking_cfg["tmp_dir"], exist_ok=True)
+
+    # IMPORTANT:
+    # action_id == 0 is reserved for the stop action.
+    # Therefore, BB index 0 must be preserved consistently across
+    # df_bb, df_bb_fp, idx_bb_dict, and related preprocessing steps.
     dd = utils.load_reaction_data(
         building_block_file, reaction_file, m_bb_file)
     df_bb, df_reaction, reactant_id_dict, mol_bb_dict = dd
-#    reaction_key = reactant_id_dict.keys()
     df_bb_fp = pd.read_pickle(bb_fp_pkl)
 
     # Building block that does not react with any reaction template
     b_gg = df_bb[df_bb.columns[2:]].any(axis=1)
-    b_gg.loc[0] = True   # except stop code
+    b_gg.loc[0] = True  # except stop code
     df_bb_fp = df_bb_fp[b_gg]
     df_bb = df_bb[b_gg]
 
@@ -115,234 +201,126 @@ def cal_frag_dock_rl(params_dict):
     idx_bb_dict = {i: x for i, x in enumerate(df_bb_fp.index)}
     bb_fp = torch.tensor(df_bb_fp.values, dtype=torch.float32)
 
-    batch_size_search = min(batch_size_search, df_bb.shape[0])
+    batch_size_bb = min(batch_size_bb, df_bb.shape[0])
 
-    m_ref = Chem.MolFromPDBFile(ligand_pdb_file, removeHs=True)
+    m_ref_core = Chem.MolFromPDBFile(core_pdb_file, removeHs=True)
+    if m_ref_core is None:
+        raise ValueError(f"Failed to load core PDB file: {core_pdb_file}")
 
-    m_start_h = utils.prep_ref_mol_simple(start_smi, m_ref)
-    m_ref_com_h = utils.prep_ref_mol_simple(smi_ref_com, m_ref)
+    m_start = Chem.MolFromSmiles(start_smi)
+    if m_start is None:
+        raise ValueError(f"Failed to parse start_smi: {start_smi}")
 
-    start_mol_file = 'mol_start.pdb'
-    ref_mol_coor_file = 'mol_ref_coor.pdb'
+    td_replay_buffer = []
+    mc_replay_buffer = []
 
-    Chem.MolToPDBFile(m_start_h, start_mol_file)
-    Chem.MolToPDBFile(m_ref_com_h, ref_mol_coor_file)
-
-    m_start = Chem.RemoveHs(m_start_h)
-    m_ref_com = Chem.RemoveHs(m_ref_com_h)
-
-    # ep_list = list()
-    ep_tree_dict = dict()
-    shot_list = list()
-    ep_simple_list = list()
+    ep_simple_list = []
     p_list = np.array([]).reshape(0, 13)
-    # [idx, cumulative_reward, final_reward, dock_score, mol_wt, num_rb, logp, num_hd, num_ha, num_ring, tpsa, num_heavy_atoms]
 
-    # temperature = temperature0 + temperature_min
-    # print(temperature)
+    ep_searcher = episode_search.EpisodeSearcher(
+        online_net, device, bb_fp,
+        df_reaction, df_bb,
+        reactant_id_dict, mol_bb_dict,
+        idx_bb_dict,
+        num_ep_batch=num_ep_batch,
+        batch_size_bb=batch_size_bb,
+        eps=0.0, p_stop=0.0,
+        max_step=max_step,
+        penalty_score=penalty_score,
+    )
 
-    fp_log = open('run_log.txt', 'a')
-    for i_gen in range(0, max_epoch):
+    t_reward = terminal_reward.TerminalReward(
+        m_ref_core,
+        cutoff_cfg,
+        docking_cfg,
+        penalty_para_dict=penalty_cfg,
+        num_sub_proc=num_sub_proc,
+    )
 
+    fp_log = open(log_file, "a", encoding="utf-8", buffering=1)
+
+    for i_gen in range(max_epoch):
         temperature = temperature0 * \
             np.power(temp_reduce, i_gen) + temperature_min
-        print("generation:", i_gen, temperature)
-        line_out = 'generation: %d %.6f\n' % (i_gen, temperature)
-        fp_log.write(line_out)
+        print("generation:", i_gen, "Temperature:", temperature)
+        fp_log.write(f"generation: {i_gen} Temperature: {temperature:.6f}\n")
 
         st = time.time()
-        start_idx = i_gen*num_ep_batch
-        ep_list_batch0 = rl_utils.search_ep_batch(m_start, net, device, num_ep_batch,
-                                                  bb_fp, batch_size_search, df_reaction,
-                                                  df_bb, reactant_id_dict,
-                                                  mol_bb_dict, idx_bb_dict,
-                                                  temperature=temperature, eps=0.00, p_stop=0.0,
-                                                  max_step=max_step,
-                                                  penalty_score=penalty_score)
+        start_idx = i_gen * num_ep_batch
+
+        ep_list_batch0 = ep_searcher.search_ep_batch(
+            m_start, temperature=temperature
+        )
+
         et1 = time.time()
-        print('search time:', et1-st)
-        line_out = 'search time: %.3f\n' % (et1-st)
-        fp_log.write(line_out)
-        # Separate search code and property calculation code for parallelization.
-        results = final_reward.dock_ep_list(ep_list_batch0, m_ref_com, tmp_dir,
-                                            ref_atom_idx_ref, cut_para_dict,
-                                            smina_para_dict=smina_para_dict,
-                                            penelty_para_dict=penelty_para_dict,
-                                            num_sub_proc=num_sub_proc)
-        ep_list_batch2, dock_property_batch = results
-        dock_score_batch = [x['dock_score'] for x in dock_property_batch]
+        print("search time:", et1 - st)
+        fp_log.write(f"search time: {et1 - st:.3f}\n")
+
+        ep_property_batch0 = t_reward.compute(ep_list_batch0)
+        ep_property_batch = [
+            (i + start_idx, x[0], x[1])
+            for i, x in enumerate(ep_property_batch0)
+        ]
+
+        dock_score_batch = [x[2]["dock_score"] for x in ep_property_batch]
         mean_dock_reward = -np.mean(dock_score_batch)
         print("dock_mean_reward:", i_gen, mean_dock_reward)
-        line_out = 'dock_mean_reward: %d %.3f\n' % (i_gen, mean_dock_reward)
-        fp_log.write(line_out)
-
-        ep_list_batch = [[i+start_idx, ep_list_batch2[i],
-                          dock_property_batch[i]] for i in range(len(ep_list_batch2))]
-
-        p_list_batch, ep_simple_list_batch = utils.extract_ep_simple(
-            ep_list_batch)
-
-        p_list = np.concatenate([p_list, p_list_batch])
-        ep_simple_list += ep_simple_list_batch
-        shot_list_batch = utils.shot_from_ep(ep_list_batch, ep_tree_dict)
-        shot_list += shot_list_batch
-
-        print(len(shot_list))
-        shot_list = shot_list[-40000:]
+        fp_log.write(f"dock_mean_reward: {i_gen} {mean_dock_reward:.3f}\n")
 
         et2 = time.time()
-        print('docking time', et2-et1)
-        line_out = 'docking time: %.3f\n' % (et2-et1)
-        fp_log.write(line_out)
+        print("docking time:", et2 - et1)
+        fp_log.write(f"docking time: {et2 - et1:.3f}\n")
 
-        # update_new_shot
-        for r_step in range(max_step):
-            if r_step == 0:
-                num_repeat = 3
-            elif r_step == 1:
-                num_repeat = 2
-            else:
-                num_repeat = 1
-            for i_rr in range(0, num_repeat):
-                shot_list_r_step = [
-                    x for x in shot_list_batch if x[11] <= r_step]
-                loss_list = rl_utils.train(shot_list_r_step, net, net_2, device, bb_fp, bb_idx_dict,
-                                           batch_size_train, batch_size_search, optimizer,
-                                           loss_function, gamma, max_iter=4)
-                print(r_step, i_rr, loss_list)
-                line_out = 'loss_new_shot: %d %d ' % (r_step, i_rr)
-                tmp_ll = list()
-                for loss_g in loss_list:
-                    tmp_ll.append('%.4f' % loss_g[1])
-                line_out += ','.join(tmp_ll)
-                line_out += '\n'
-                fp_log.write(line_out)
+        ep_simple_batch, p_batch = utils.extract_ep_simple(ep_property_batch)
+        ep_simple_list += ep_simple_batch
+        p_list = np.concatenate([p_list, p_batch])
 
-        # update_shot
-        if len(shot_list) < 2000:
-            max_iter0 = 0
-        elif len(shot_list) < 5000:
-            max_iter0 = 1
-        elif len(shot_list) < 10000:
-            max_iter0 = 2
-        elif len(shot_list) < 20000:
-            max_iter0 = 3
+        td_replay_batch = utils.shot_from_ep_for_td(ep_property_batch)
+        td_replay_buffer += td_replay_batch
+        if len(td_replay_buffer) > max_td_buffer:
+            td_replay_buffer = td_replay_buffer[-max_td_buffer:]
+
+        mc_replay_batch = utils.shot_from_ep_for_mc(ep_property_batch, gamma)
+        # If max_mc_buffer is None, do not accumulate MC replay across generations.
+        # Only the current generation MC batch is used.
+        if max_mc_buffer is None:
+            mc_replay_buffer = mc_replay_batch
         else:
-            max_iter0 = 4
-        if max_iter0 > 0:
-            loss_list = rl_utils.train(shot_list, net, net_2, device, bb_fp, bb_idx_dict,
-                                       batch_size_train, batch_size_search, optimizer,
-                                       loss_function, gamma, max_iter=max_iter0)
+            mc_replay_buffer += mc_replay_batch
+            if len(mc_replay_buffer) > max_mc_buffer:
+                mc_replay_buffer = mc_replay_buffer[-max_mc_buffer:]
 
-            for loss_g in loss_list:
-                print(loss_g[0], loss_g[1])
-                line_out = 'loss_old_shot: %d %.4f\n' % (loss_g[0], loss_g[1])
-                fp_log.write(line_out)
+        num_td_buffer = len(td_replay_buffer)
+        num_mc_buffer = len(mc_replay_buffer)
+        print("mc buffer:", num_mc_buffer, "td buffer:", num_td_buffer)
+        fp_log.write(f"mc buffer: {num_mc_buffer:.3f} td buffer: {num_td_buffer:.3f}\n")
 
-        torch.save(net, save_dir + '/net_%d.torch' % i_gen)
-        save_ep(ep_dir, p_list, ep_simple_list, shot_list, ep_tree_dict)
+        loss_list = rl_utils.train(
+            td_replay_buffer, mc_replay_buffer,
+            online_net, target_net, device,
+            optimizer, loss_function,
+            bb_fp, bb_idx_dict, gamma,
+            batch_size_td, batch_size_mc, batch_size_bb,
+            td_mc_loss_ratio=td_mc_loss_ratio,
+            tau=tau,
+        )
+
+        for loss_g in loss_list:
+            line_out = "iter: %d TD_loss: %.5f MC_loss: %.5f" % loss_g
+            print(line_out)
+            fp_log.write(line_out+'\n')
+
+        torch.save(online_net.state_dict(), f"{save_dir}/net_{i_gen}.torch")
+
+        save_ep(
+            ep_dir, i_gen, ep_property_batch,
+            td_replay_batch, mc_replay_batch, ep_simple_list
+        )
 
         et3 = time.time()
-        print('training time:', et3-et2)
-        line_out = 'training time: %.3f\n' % (et3-et2)
-        fp_log.write(line_out)
+        print("training time:", et3 - et2, flush=True)
+        fp_log.write(f"training time: {et3 - et2:.3f}\n")
 
     fp_log.close()
 
-    torch.save(net, save_dir + '/net.torch')
-
-
-def main():
-
-    protein_dir = '../fix'
-
-# config.txt
-#    protein_pdb_file = protein_dir + '/2P2IA_receptor.pdb'
-#    protein_pdbqt_file = protein_dir + '/2P2IA_receptor.pdbqt'
-    ligand_pdb_file = protein_dir + '/2P2IA_608.pdb'
-
-    cut_para_dict = {
-        'num_rb': 12,
-        'num_heavy_atoms': 60,
-        'mol_wt': 650,
-        'timeout_docking': 120,
-        'cut_score': 3,  # clip docking score
-        'cut_rmsd': 2.5,
-    }
-
-    # penelty_para_dict = {'w_logp': 1.0, 'w_mw': 1.0, 'w_ha': 1.0, 'w_hd': 1.0,}
-    penelty_para_dict = {'w_logp': 0.0, 'w_mw': 0.0, 'w_ha': 0.0, 'w_hd': 0.0}
-
-    use_cuda = torch.cuda.is_available()
-    if use_cuda:
-        device_num = torch.cuda.current_device()
-        device = torch.device("cuda:%d" % device_num)
-        torch.set_num_threads(2)
-    else:
-        device = torch.device("cpu")
-        torch.set_num_threads(14)
-
-    print(device)
-
-    net = model.Net(input_dim=1024, hidden_dim1=1024, latent_dim=512,
-                    hidden_dim2=1024, output_dim=1, num_layer=2).to(device)
-    net_2 = model.Net(input_dim=1024, hidden_dim1=1024, latent_dim=512,
-                      hidden_dim2=1024, output_dim=1, num_layer=2).to(device)
-
-    # net = torch.load('save/net.torch', weights_only=False).to(device)
-    net_2.load_state_dict(net.state_dict())
-
-    lr = 0.001
-    optimizer = optim.Adam(net.parameters(), lr=lr)
-    loss_function = nn.MSELoss()
-
-    data_dir = '../data'
-    building_block_file = data_dir + '/bb_reaction.pkl'
-    reaction_file = data_dir + '/smirks_reactant.pkl'
-    m_bb_file = data_dir + '/m_bb.pkl'
-    bb_fp_pkl = data_dir + '/bb_fp_r2_1024.pkl'
-
-    smina_para_dict = {
-        'smina_run': 'smina',
-        'prepare_ligand_run': 'prepare_ligand4',
-        'smina_config_file': 'config.txt'
-    }
-
-    params_dict = {
-        'start_smi': 'NCc1ccncc1',
-        'smi_ref_com': 'Cc1ccncc1',
-        'ref_atom_idx_ref': 0,
-        'num_sub_proc': 16,
-        'ep_dir': 'ep',
-        'save_dir': 'save',
-        'tmp_dir': 'tmp',
-        'penalty_score': -2.0,  # step reward
-        'max_step': 4,
-        'num_ep_batch': 200,
-        'batch_size_train': 256,
-        'batch_size_search': 5096,
-        'gamma': 0.9,
-        'max_epoch': 400,
-        'temperature0': 0.45,
-        'temp_reduce': 0.99,
-        'temperature_min': 0.05,
-        'cut_para_dict': cut_para_dict,
-        'penelty_para_dict': penelty_para_dict,
-        'ligand_pdb_file': ligand_pdb_file,
-        'building_block_file': building_block_file,
-        'reaction_file': reaction_file,
-        'm_bb_file': m_bb_file,
-        'bb_fp_pkl': bb_fp_pkl,
-        'smina_para_dict': smina_para_dict,
-
-        'device': device,
-        'net': net,
-        'net_2': net_2,
-        'optimizer': optimizer,
-        'loss_function': loss_function,
-    }
-    cal_frag_dock_rl(params_dict)
-
-
-if __name__ == '__main__':
-    main()
+    torch.save(online_net.state_dict(), f"{save_dir}/net.torch")

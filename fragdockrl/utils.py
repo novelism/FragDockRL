@@ -9,49 +9,60 @@ from rdkit.Chem import rdFMCS
 # from rdkit.Chem import Descriptors
 
 
-def prep_ref_mol_simple(smi, m_ref):
+def prep_ref_mol_simple(smi, m_ref, match_idx=None):
     """
-    Extract core structure from a molecular object including 3D conformation
-    by performing Maximum Common Substructure (MCS) search.
+    Generate a 3D conformer for a query molecule (SMILES) by embedding it
+    onto a reference molecule using substructure matching.
 
     Parameters
     ----------
-    core_smiles : str
-        SMILES string of the core structure to be extracted.
-    ref_mol : rdkit.Chem.Mol
-        RDKit Mol object of the reference molecule, must include conformer information.
+    smi : str
+        SMILES string of the query molecule.
+    m_ref : rdkit.Chem.Mol
+        Reference molecule containing 3D coordinates (must have a conformer).
+    match_idx : int or None, optional
+        If multiple substructure matches are found, select which match to use.
+        If None and multiple matches exist, the function returns False.
 
     Returns
     -------
-    rdkit.Chem.Mol
-        RDKit Mol object representing the extracted core structure.
+    success : bool
+        True if embedding succeeded, False otherwise.
+    match_list : list of tuple
+        All substructure match index tuples found in the reference molecule.
+    mol_embedded : rdkit.Chem.Mol or None
+        Hydrogen-added query molecule with embedded 3D conformer
+        aligned to the reference coordinates. None if failed.
     """
     m = Chem.MolFromSmiles(smi)
-    mcs = rdFMCS.FindMCS(
-        [m, m_ref], ringMatchesRingOnly=True, completeRingsOnly=True)
-    smarts = mcs.smartsString
-    mcs_query = Chem.MolFromSmarts(smarts)
-    match_atoms_ref = m_ref.GetSubstructMatch(mcs_query)
-    match_atoms_list = m.GetSubstructMatches(mcs_query, uniquify=False)
-    num_models = len(match_atoms_list)
+    match_list = m_ref.GetSubstructMatches(m)
+    num_match = len(match_list)
+    if num_match == 1:
+        match = match_list[0]
+    elif num_match > 1:
+        if match_idx is None:
+            return False, match_list, None
+        else:
+            match = match_list[match_idx]
+    else:
+        return False, match_list, None
 
     m_h = Chem.AddHs(m)
     conf_ref = m_ref.GetConformer()
     positions_ref = conf_ref.GetPositions()
-    num_atoms_mcs = len(match_atoms_ref)
+    num_atoms = len(match)
 
-    for i_model in range(len(match_atoms_list)):
-        coordmap = dict()
-        for i in range(num_atoms_mcs):
-            idx_m = match_atoms_list[i_model][i]
-            idx_ref = match_atoms_ref[i]
-            coordmap[idx_m] = conf_ref.GetAtomPosition(idx_ref)
-        cids = AllChem.EmbedMultipleConfs(m_h, numConfs=1, numThreads=1,
-                                          clearConfs=False,
-                                          useRandomCoords=True,
-                                          coordMap=coordmap)
+    coordmap = dict()
+    for i in range(num_atoms):
+        idx_m = i
+        idx_ref = match[i]
+        coordmap[idx_m] = conf_ref.GetAtomPosition(idx_ref)
+    cids = AllChem.EmbedMultipleConfs(m_h, numConfs=1, numThreads=1,
+                                      clearConfs=False,
+                                      useRandomCoords=True,
+                                      coordMap=coordmap)
 
-    return m_h
+    return True, match_list, m_h
 
 
 def prep_ref_mol(smi, m_ref, m_smarts):
@@ -171,7 +182,7 @@ def load_reaction_data(building_block_file, reaction_file, m_bb_file):
     return df_bb, df_reaction, reactant_id_dict, mol_bb_dict
 
 
-def shot_from_ep(ep_list_batch, ep_tree_dict):
+def shot_from_ep_for_td(ep_property_batch):
     """
     Extract training snapshots from episodes.
 
@@ -179,50 +190,101 @@ def shot_from_ep(ep_list_batch, ep_tree_dict):
     ----------
     ep_list_batch : list
         List of episodes, where each episode is a tuple (episode_index, episode_steps).
-    ep_tree_dict : dict
-        Dictionary used to track the tree structure of building blocks during extraction.
 
     Returns
     -------
     list
-        List of snapshots needed for training, each containing:
-        (m, bb_id, m_new, reward, possible_reaction_bb_bool_next, done, product_info,
-         count_update, ep_idx, i_step, count_train, r_step)
+        List of snapshots needed for training
+
+            ep_dict = {"m": m, 'fp_bool': fp_bool,
+                       "action_id": action_id,
+                       "m_new": m_new,
+                       "step_reward": step_reward,
+                       "possible_reaction": possible_reaction_bb_bool,
+                       "done": done,
+                       "status_code": status_code,
+                       "count_update": count_update,
+                       "terminal_reward": 0.0,
+                       "reward": step_reward}
+
     """
 
     shot_list = list()
-    count_train = 0
-    for ep0 in ep_list_batch:
-        ep_idx = ep0[0]
-        ep_s = ep0[1]
-        tmp_dict = ep_tree_dict
+    for ep0 in ep_property_batch:
+        ep_idx, ep_s, p_dict = ep0
         num_step = len(ep_s)
-        shot_end = ep_s[-1]
-        count_end = shot_end[7]
         for i_step in range(num_step):
-            shot = ep_s[i_step]
-            m, bb_id, m_new, reward, possible_reaction_bb_bool, done, product_info, count_update = shot
-            if done:
-                r_step = count_end - count_update
-            else:
-                r_step = count_end - count_update + 1
+            shot0_dict = ep_s[i_step]
+            done = shot0_dict['done']
+            m = shot0_dict['m']
+            fp_bool = shot0_dict['fp_bool']
+            action_id = shot0_dict['action_id']
+            reward = shot0_dict['reward']
+            possible_reaction = shot0_dict['possible_reaction']
 
-            if i_step < len(ep_s)-1:
-                ep_s_next = ep_s[i_step+1]
-                possible_reaction_bb_bool_next = ep_s_next[4]
+            if i_step < num_step-1:
+                shot0_dict_next = ep_s[i_step+1]
+                m_new = shot0_dict_next['m']
+                fp_bool_next = shot0_dict_next['fp_bool']
+                possible_reaction_next = shot0_dict_next['possible_reaction']
             else:
-                possible_reaction_bb_bool_next = possible_reaction_bb_bool
-            if bb_id not in tmp_dict:
-                tmp_dict[bb_id] = dict()
-            shot_list.append((m, bb_id, m_new, reward, possible_reaction_bb_bool_next,
-                              done, product_info, count_update, ep_idx, i_step, count_train, r_step))
+                m_new = shot0_dict['m_new']
+                fp_bool_next = shot0_dict['fp_bool']  # placeholder
+                possible_reaction_next = possible_reaction
+            shot_dict = {'m': m, 'm_new': m_new, 'action_id': action_id,
+                         'fp_bool': fp_bool, 'fp_bool_next': fp_bool_next,
+                         'possible_reaction_next': possible_reaction_next,
+                         'reward': reward, 'done': done,
+                         'ep_idx': ep_idx, 'step_idx': i_step}
 
-            if product_info == 1:
-                tmp_dict = tmp_dict[bb_id]
+            shot_list.append(shot_dict)
+
     return shot_list
 
 
-def extract_ep_simple(ep_list):
+def shot_from_ep_for_mc(ep_property_batch, gamma):
+    """
+    Extract training snapshots from episodes.
+
+    Parameters
+    ----------
+    ep_list_batch : list
+        List of episodes, where each episode is a tuple (episode_index, episode_steps).
+
+    Returns
+    -------
+    list
+        List of snapshots needed for training
+
+    """
+
+    shot_list = list()
+    for ep0 in ep_property_batch:
+        ep_idx, ep_s, p_dict = ep0
+        num_step = len(ep_s)
+        for i_step in range(num_step):
+            shot0_dict = ep_s[i_step]
+            done = shot0_dict['done']
+            m = shot0_dict['m']
+            fp_bool = shot0_dict['fp_bool']
+            action_id = shot0_dict['action_id']
+
+#            reward = shot0_dict['reward']
+            possible_reaction = shot0_dict['possible_reaction']
+            g_reward = 0
+            for j_step in range(num_step - 1, i_step - 1, -1):
+                reward = ep_s[j_step]['reward']
+                g_reward = reward + gamma * g_reward
+
+            shot_dict = {'m': m, 'fp_bool': fp_bool, 'action_id': action_id,
+                         'g_reward': g_reward, 'done': done,
+                         'ep_idx': ep_idx, 'step_idx': i_step}
+            shot_list.append(shot_dict)
+
+    return shot_list
+
+
+def extract_ep_simple(ep_property_batch):
     """
     Extract simplified episode summaries and property lists from episode data.
 
@@ -246,10 +308,8 @@ def extract_ep_simple(ep_list):
 
     p_list = list()
     simple_list = list()
-    for ep in ep_list:
-        idx = ep[0]
-        ep_s = ep[1]
-        p_dict = ep[2]
+    for ep0 in ep_property_batch:
+        ep_idx, ep_s, p_dict = ep0
 
         dock_score = p_dict['dock_score']
         dock_rmsd = p_dict['dock_RMSD']
@@ -268,21 +328,22 @@ def extract_ep_simple(ep_list):
 
         cumulative_reward = 0
         for i_step in range(num_step):
-            shot = ep_s[i_step]
-            m, bb_id, m_new, reward, possible_reaction_bb_bool, done, product_info, check_update = shot
+            shot0_dict = ep_s[i_step]
+            reward = shot0_dict['reward']
+            status_code = shot0_dict['status_code']
+            action_id = shot0_dict['action_id']
             cumulative_reward += reward
-            check_update = False
-            if product_info == 1:
-                check_update = True
-            simple_ep_list.append([bb_id, check_update])
-        m_gg = ep[1][-1][0]
-        smi_final = Chem.MolToSmiles(m_gg)
-        final_reward = ep[1][-1][3]
-        p_list.append([idx, cumulative_reward, final_reward, dock_score, dock_rmsd,
+            simple_ep_list.append([action_id, status_code])
+
+        shot_end = ep_s[num_step-1]
+        m_final = shot_end['m_new']
+        smi_final = Chem.MolToSmiles(m_final)
+        final_reward = shot_end['reward']
+        p_list.append([ep_idx, cumulative_reward, final_reward, dock_score, dock_rmsd,
                       mol_wt, num_rb, logp, num_hd, num_ha, num_ring, tpsa, num_heavy_atoms])
 
-        simple_dict = p_dict
-        simple_dict['idx'] = idx
+        simple_dict = dict(p_dict)
+        simple_dict['idx'] = ep_idx
         simple_dict['ep'] = simple_ep_list
         simple_dict['final_reward'] = final_reward
         simple_dict['cumulative_reward'] = cumulative_reward
@@ -290,4 +351,4 @@ def extract_ep_simple(ep_list):
 
         simple_list.append(simple_dict)
     property_list = np.array(p_list)
-    return property_list, simple_list
+    return simple_list, property_list

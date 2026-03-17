@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name="fragdockrl",
-    version="0.1.0",
+    version="0.5.0",
     author="Seung Hwan Hong",
     author_email="shhong@novelismlab.com",
     description="Fragment-based docking with reinforcement learning",
@@ -15,13 +15,14 @@ setup(
                 "Operating System :: OS Independent",
     ],
     install_requires=[
-        "numpy==1.26",
-        "pandas==2.3.1",
+        "numpy",
+        "pandas",
         "rdkit==2023.09.6",
-        "smina==2020.12.10",
-        "torch==2.7.1",
+        "torch==2.10",
         "AutoDockTools_py3 @ git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3.git"
     ],
     python_requires=">=3.12",
-)
 
+    scripts=['bin/run_fragdockrl.py', 'bin/prepare_core.py', 'bin/cal_tdock.py']
+
+)

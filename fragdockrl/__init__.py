@@ -1,1 +1,1 @@
-from .frag_dock_rl import cal_frag_dock_rl, save_ep, load_ep
+__version__ = "0.5"
