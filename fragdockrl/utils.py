@@ -5,7 +5,7 @@ import copy
 
 from rdkit import Chem
 from rdkit.Chem import AllChem
-from rdkit.Chem import rdFMCS
+# from rdkit.Chem import rdFMCS
 # from rdkit.Chem import Descriptors
 
 
@@ -49,7 +49,7 @@ def prep_ref_mol_simple(smi, m_ref, match_idx=None):
 
     m_h = Chem.AddHs(m)
     conf_ref = m_ref.GetConformer()
-    positions_ref = conf_ref.GetPositions()
+#    positions_ref = conf_ref.GetPositions()
     num_atoms = len(match)
 
     coordmap = dict()
@@ -86,7 +86,7 @@ def prep_ref_mol(smi, m_ref, m_smarts):
 
     m_new = Chem.MolFromSmiles(smi)
     m_h = Chem.AddHs(m_new)
-    m_h_new = copy.copy(m_h)
+#    m_h_new = copy.copy(m_h)
     AllChem.EmbedMolecule(m_h)
 
     match_atoms_list = m_h.GetSubstructMatches(m_smarts, uniquify=False)
@@ -212,6 +212,8 @@ def shot_from_ep_for_td(ep_property_batch):
     shot_list = list()
     for ep0 in ep_property_batch:
         ep_idx, ep_s, p_dict = ep0
+        smi_terminal = p_dict['smi_terminal']
+
         num_step = len(ep_s)
         for i_step in range(num_step):
             shot0_dict = ep_s[i_step]
@@ -235,7 +237,9 @@ def shot_from_ep_for_td(ep_property_batch):
                          'fp_bool': fp_bool, 'fp_bool_next': fp_bool_next,
                          'possible_reaction_next': possible_reaction_next,
                          'reward': reward, 'done': done,
-                         'ep_idx': ep_idx, 'step_idx': i_step}
+                         'ep_idx': ep_idx, 'step_idx': i_step,
+                         'smi_terminal': smi_terminal,
+                         }
 
             shot_list.append(shot_dict)
 
@@ -261,6 +265,7 @@ def shot_from_ep_for_mc(ep_property_batch, gamma):
     shot_list = list()
     for ep0 in ep_property_batch:
         ep_idx, ep_s, p_dict = ep0
+        smi_terminal = p_dict['smi_terminal']
         num_step = len(ep_s)
         for i_step in range(num_step):
             shot0_dict = ep_s[i_step]
@@ -278,13 +283,16 @@ def shot_from_ep_for_mc(ep_property_batch, gamma):
 
             shot_dict = {'m': m, 'fp_bool': fp_bool, 'action_id': action_id,
                          'g_reward': g_reward, 'done': done,
-                         'ep_idx': ep_idx, 'step_idx': i_step}
+                         'ep_idx': ep_idx, 'step_idx': i_step,
+                         'smi_terminal': smi_terminal,
+                         }
+
             shot_list.append(shot_dict)
 
     return shot_list
 
 
-def extract_ep_simple(ep_property_batch):
+def extract_ep_simple(ep_property_batch, epoch):
     """
     Extract simplified episode summaries and property lists from episode data.
 
@@ -306,21 +314,21 @@ def extract_ep_simple(ep_property_batch):
             index, step info, final reward, cumulative reward, and final SMILES string.
     """
 
-    p_list = list()
+#    p_list = list()
     simple_list = list()
     for ep0 in ep_property_batch:
         ep_idx, ep_s, p_dict = ep0
 
-        dock_score = p_dict['dock_score']
-        dock_rmsd = p_dict['dock_RMSD']
-        mol_wt = p_dict['mol_wt']
-        num_rb = p_dict['num_rb']
-        logp = p_dict['logp']
-        num_hd = p_dict['num_hd']
-        num_ha = p_dict['num_ha']
-        num_ring = p_dict['num_ring']
-        tpsa = p_dict['tpsa']
-        num_heavy_atoms = p_dict['num_heavy_atoms']
+#        dock_score = p_dict['dock_score']
+#        dock_rmsd = p_dict['dock_RMSD']
+#        mol_wt = p_dict['mol_wt']
+#        num_rb = p_dict['num_rb']
+#        logp = p_dict['logp']
+#        num_hd = p_dict['num_hd']
+#        num_ha = p_dict['num_ha']
+#        num_ring = p_dict['num_ring']
+#        tpsa = p_dict['tpsa']
+#        num_heavy_atoms = p_dict['num_heavy_atoms']
 
         num_step = len(ep_s)
 
@@ -336,19 +344,20 @@ def extract_ep_simple(ep_property_batch):
             simple_ep_list.append([action_id, status_code])
 
         shot_end = ep_s[num_step-1]
-        m_final = shot_end['m_new']
-        smi_final = Chem.MolToSmiles(m_final)
+#        m_final = shot_end['m_new']
+#        smi_final = Chem.MolToSmiles(m_final)
         final_reward = shot_end['reward']
-        p_list.append([ep_idx, cumulative_reward, final_reward, dock_score, dock_rmsd,
-                      mol_wt, num_rb, logp, num_hd, num_ha, num_ring, tpsa, num_heavy_atoms])
+#        p_list.append([ep_idx, cumulative_reward, final_reward, dock_score, dock_rmsd,
+#                      mol_wt, num_rb, logp, num_hd, num_ha, num_ring, tpsa, num_heavy_atoms])
 
         simple_dict = dict(p_dict)
-        simple_dict['idx'] = ep_idx
+        simple_dict['ep_idx'] = ep_idx
+        simple_dict['epoch_idx'] = epoch
         simple_dict['ep'] = simple_ep_list
         simple_dict['final_reward'] = final_reward
         simple_dict['cumulative_reward'] = cumulative_reward
-        simple_dict['SMILES'] = smi_final
+#        simple_dict['SMILES'] = smi_final
 
         simple_list.append(simple_dict)
-    property_list = np.array(p_list)
-    return simple_list, property_list
+#    property_list = np.array(p_list)
+    return simple_list  # , property_list

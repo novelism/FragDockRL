@@ -152,6 +152,19 @@ def dedup_episodes_by_smiles(ep_list_batch, smi_list_batch):
     return ep_list_batch_new, smi_list_batch_new
 
 
+def dedup_with_buffer(ep_list, smi_list, buffer_smi_set):
+    ep_out = []
+    smi_out = []
+
+    for ep, smi in zip(ep_list, smi_list):
+        if smi not in buffer_smi_set:
+            ep_out.append(ep)
+            smi_out.append(smi)
+#            buffer_smi_set.add(smi)
+
+    return ep_out, smi_out
+
+
 def cal_frag_dock_rl(config, device, online_net, target_net,
                      optimizer, loss_function):
     """Run FragDockRL training using sectioned YAML config."""
@@ -231,7 +244,10 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
     mc_replay_buffer = []
 
     ep_simple_list = []
-    p_list = np.array([]).reshape(0, 13)
+
+    buffer_smi_set = set()
+
+#    p_list = np.array([]).reshape(0, 13)
 
     ep_searcher = episode_search.EpisodeSearcher(
         online_net, device, bb_fp,
@@ -266,15 +282,26 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
 
         ep_list_batch00, smi_list_batch00 = ep_searcher.search_ep_batch(
             m_start, temperature=temperature)
-        ep_list_batch0, smi_list_batch0 = dedup_episodes_by_smiles(
+        ep_list_batch01, smi_list_batch01 = dedup_episodes_by_smiles(
             ep_list_batch00, smi_list_batch00)
 
-        n_before = len(ep_list_batch00)
-        n_after = len(ep_list_batch0)
-        n_removed = n_before - n_after
-        print(f"terminal dedup: {n_before} -> {n_after} (removed {n_removed})")
+        ep_list_batch0, smi_list_batch0 = dedup_with_buffer(
+            ep_list_batch01, smi_list_batch01, buffer_smi_set)
+
+        n_raw = len(ep_list_batch00)
+        n_epoch = len(ep_list_batch01)
+        n_final = len(ep_list_batch0)
+
+        print(f"epoch dedup: {n_raw} -> {n_epoch} (removed {n_raw-n_epoch})")
         fp_log.write(
-            f"terminal dedup: {n_before} -> {n_after} (removed {n_removed})\n")
+            f"epoch dedup: {n_raw} -> {n_epoch} (removed {n_raw-n_epoch}\n)")
+        print(f"buffer dedup: {
+              n_epoch} -> {n_final} (removed {n_epoch-n_final})")
+        fp_log.write(
+            f"buffer dedup: {n_epoch} -> {n_final} (removed {n_epoch-n_final}\n)")
+        print(f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})")
+        fp_log.write(
+            f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final}\n)")
 
         et1 = time.time()
         print("search time:", et1 - st)
@@ -295,14 +322,16 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
         print("docking time:", et2 - et1)
         fp_log.write(f"docking time: {et2 - et1:.3f}\n")
 
-        ep_simple_batch, p_batch = utils.extract_ep_simple(ep_property_batch)
+        ep_simple_batch = utils.extract_ep_simple(ep_property_batch, i_gen)
         ep_simple_list += ep_simple_batch
-        p_list = np.concatenate([p_list, p_batch])
+#        p_list = np.concatenate([p_list, p_batch])
 
         td_replay_batch = utils.shot_from_ep_for_td(ep_property_batch)
         td_replay_buffer += td_replay_batch
         if len(td_replay_buffer) > max_td_buffer:
             td_replay_buffer = td_replay_buffer[-max_td_buffer:]
+
+        buffer_smi_set = set(item["smi_terminal"] for item in td_replay_buffer)
 
         mc_replay_batch = utils.shot_from_ep_for_mc(ep_property_batch, gamma)
         # If max_mc_buffer is None, do not accumulate MC replay across generations.
