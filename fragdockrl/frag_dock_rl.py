@@ -294,14 +294,14 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
 
         print(f"epoch dedup: {n_raw} -> {n_epoch} (removed {n_raw-n_epoch})")
         fp_log.write(
-            f"epoch dedup: {n_raw} -> {n_epoch} (removed {n_raw-n_epoch}\n)")
+            f"epoch dedup: {n_raw} -> {n_epoch} (removed {n_raw-n_epoch})\n")
         print(f"buffer dedup: {
               n_epoch} -> {n_final} (removed {n_epoch-n_final})")
         fp_log.write(
-            f"buffer dedup: {n_epoch} -> {n_final} (removed {n_epoch-n_final}\n)")
+            f"buffer dedup: {n_epoch} -> {n_final} (removed {n_epoch-n_final})\n")
         print(f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})")
         fp_log.write(
-            f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final}\n)")
+            f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})\n")
 
         et1 = time.time()
         print("search time:", et1 - st)
@@ -325,7 +325,6 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
         ep_simple_batch = utils.extract_ep_simple(ep_property_batch, i_gen)
         ep_simple_list += ep_simple_batch
 #        p_list = np.concatenate([p_list, p_batch])
-
         td_replay_batch = utils.shot_from_ep_for_td(ep_property_batch)
         td_replay_buffer += td_replay_batch
         if len(td_replay_buffer) > max_td_buffer:
@@ -338,6 +337,8 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
         # Only the current generation MC batch is used.
         if max_mc_buffer is None:
             mc_replay_buffer = mc_replay_batch
+        elif max_mc_buffer == 0:
+            mc_replay_buffer = []
         else:
             mc_replay_buffer += mc_replay_batch
             if len(mc_replay_buffer) > max_mc_buffer:

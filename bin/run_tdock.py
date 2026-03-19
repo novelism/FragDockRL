@@ -25,7 +25,7 @@ def main():
                         default='receptor.prm', help='receptor prm for rdock.')
     parser.add_argument('-p', '--rdock_prm', type=str, default='dock.prm',
                         help='dock prm for rdock.')
-    parser.add_argument('-n', '--nconf', type=int, default=20,
+    parser.add_argument('-n', '--nconf', type=int, default=10,
                         help='nconf for rdock')
     parser.add_argument('-s', '--smina_run', type=str, default='smina',
                         help='smina run file.')

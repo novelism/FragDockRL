@@ -204,7 +204,6 @@ def run_rdock(m, m_ref_dock, mol_id='molid', out_dir='tmp', rdock_run='rbdock',
     output_pdb_file = out_dir + '/dock_%s.pdb' % mol_id
 
     match_list = gen_conf_ref_mol(m, m_ref_dock, test_pdb_file, test_sd_file)
-    ref_model_dict = read_ref_pdb_ligand(test_pdb_file)
 
     if match_list == -1:
         dock_score = 999.9  # EmbedMolecule error
@@ -218,6 +217,8 @@ def run_rdock(m, m_ref_dock, mol_id='molid', out_dir='tmp', rdock_run='rbdock',
         return (dock_score, rmsd_core, error_code)
     else:
         num_match = len(match_list)
+
+    ref_model_dict = read_ref_pdb_ligand(test_pdb_file)
     run_line_rdock = '%s -r %s -p %s -i %s -o %s -n %d' % (rdock_run,
                                                            rdock_receptor_prm, rdock_prm, test_sd_file,
                                                            prefix_rdock, rdock_nconf)
