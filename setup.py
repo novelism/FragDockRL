@@ -23,6 +23,6 @@ setup(
     ],
     python_requires=">=3.12",
 
-    scripts=['bin/run_fragdockrl.py', 'bin/prepare_core.py', 'bin/cal_tdock.py']
+    scripts=['bin/run_fragdockrl.py', 'bin/prepare_core.py', 'bin/run_tdock.py']
 
 )
