@@ -1,0 +1,136 @@
+#!/usr/bin/env python
+
+import os
+import time
+import numpy as np
+import pandas as pd
+import torch
+from rdkit import Chem
+
+from . import terminal_reward, utils, episode_search
+from .frag_dock_rl import save_ep, resolve_path, dedup_episodes_by_smiles
+
+
+def cal_frag_dock_random(config):
+    """Run FragDockRL training using sectioned YAML config."""
+    run_cfg = config["run"]
+    data_cfg = config["data"]
+    search_cfg = config["search"]
+    docking_cfg = config["docking"]
+    cutoff_cfg = config["cutoff"]
+    penalty_cfg = config["penalty"]
+
+    start_smi = run_cfg["start_smi"]
+    num_sub_proc = run_cfg["num_sub_proc"]
+    ep_dir = run_cfg["ep_dir"]
+    save_dir = run_cfg["save_dir"]
+    core_pdb_file = run_cfg.get("core_pdb_file", "mol_ref_core.pdb")
+    log_file = run_cfg.get("log_file", "run_log.txt")
+
+    data_dir = data_cfg["data_dir"]
+    building_block_file = resolve_path(
+        data_dir, data_cfg["building_block_file"])
+    reaction_file = resolve_path(data_dir, data_cfg["reaction_file"])
+    m_bb_file = resolve_path(data_dir, data_cfg["m_bb_file"])
+    bb_fp_pkl = resolve_path(data_dir, data_cfg["bb_fp_pkl"])
+
+    penalty_score = search_cfg["penalty_score"]
+    max_step = search_cfg["max_step"]
+    num_ep_batch = search_cfg["num_ep_batch"]
+
+    os.makedirs(ep_dir, exist_ok=True)
+    os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(docking_cfg["tmp_dir"], exist_ok=True)
+
+    # IMPORTANT:
+    # action_id == 0 is reserved for the stop action.
+    # Therefore, BB index 0 must be preserved consistently across
+    # df_bb, df_bb_fp, idx_bb_dict, and related preprocessing steps.
+    dd = utils.load_reaction_data(
+        building_block_file, reaction_file, m_bb_file)
+    df_bb, df_reaction, reactant_id_dict, mol_bb_dict = dd
+    df_bb_fp = pd.read_pickle(bb_fp_pkl)
+
+    # Building block that does not react with any reaction template
+    b_gg = df_bb[df_bb.columns[2:]].any(axis=1)
+    b_gg.loc[0] = True  # except stop code
+    df_bb_fp = df_bb_fp[b_gg]
+    df_bb = df_bb[b_gg]
+
+    bb_idx_dict = {x: i for i, x in enumerate(df_bb_fp.index)}
+    idx_bb_dict = {i: x for i, x in enumerate(df_bb_fp.index)}
+    bb_fp = torch.tensor(df_bb_fp.values, dtype=torch.float32)
+
+    m_ref_core = Chem.MolFromPDBFile(core_pdb_file, removeHs=True)
+    if m_ref_core is None:
+        raise ValueError(f"Failed to load core PDB file: {core_pdb_file}")
+
+    m_start = Chem.MolFromSmiles(start_smi)
+    if m_start is None:
+        raise ValueError(f"Failed to parse start_smi: {start_smi}")
+
+    ep_simple_list = []
+
+    ep_searcher = episode_search.RandomEpisodeSearcher(
+        bb_fp,
+        df_reaction, df_bb,
+        reactant_id_dict, mol_bb_dict,
+        idx_bb_dict,
+        num_ep_batch=num_ep_batch,
+        eps=0.0, p_stop=0.0,
+        max_step=max_step,
+        penalty_score=penalty_score,
+    )
+
+    t_reward = terminal_reward.TerminalReward(
+        m_ref_core,
+        cutoff_cfg,
+        docking_cfg,
+        penalty_para_dict=penalty_cfg,
+        num_sub_proc=num_sub_proc,
+    )
+    fp_log = open(log_file, "a", encoding="utf-8", buffering=1)
+
+    i_gen = 0
+    st = time.time()
+    ep_list_batch00, smi_list_batch00 = ep_searcher.search_ep_batch(
+        m_start)
+
+    ep_list_batch0, smi_list_batch0 = ep_list_batch00, smi_list_batch00
+
+    n_raw = len(ep_list_batch00)
+#    ep_list_batch0, smi_list_batch0 = dedup_episodes_by_smiles(
+#        ep_list_batch00, smi_list_batch00)
+
+#    n_final = len(ep_list_batch0)
+
+#    print(f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})")
+#    fp_log.write(
+#        f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})\n")
+
+    print(f"generated molecules: {n_raw}")
+    fp_log.write(f"generated molecules: {n_raw}\n")
+
+    et1 = time.time()
+    print("search time:", et1 - st)
+    fp_log.write(f"search time: {et1 - st:.3f}\n")
+
+    ep_property_batch0 = t_reward.compute(ep_list_batch0)
+    ep_property_batch = [(i, x[0], x[1])
+                         for i, x in enumerate(ep_property_batch0)]
+
+    dock_score_batch = [x[2]["dock_score"] for x in ep_property_batch]
+    mean_dock_reward = -np.mean(dock_score_batch)
+    print("dock_mean_reward:", mean_dock_reward)
+    fp_log.write(f"dock_mean_reward: {mean_dock_reward:.3f}\n")
+
+    et2 = time.time()
+    print("docking time:", et2 - et1)
+    fp_log.write(f"docking time: {et2 - et1:.3f}\n")
+
+    ep_simple_batch = utils.extract_ep_simple(ep_property_batch, epoch=i_gen)
+    ep_simple_list += ep_simple_batch
+
+    save_ep(ep_dir, i_gen, ep_property_batch, ep_simple_list, save_buffer=False)
+
+    fp_log.close()

@@ -14,25 +14,24 @@ from rdkit import Chem
 from . import terminal_reward, model, rl_utils, utils, episode_search
 
 
-def save_ep(ep_dir, i_gen, ep_property_batch, td_replay_batch,
-            mc_replay_batch, ep_simple_list):
+def save_ep(ep_dir, i_gen, ep_property_batch, ep_simple_list, td_replay_batch=None, mc_replay_batch=None, save_buffer=True):
     """Save episode-related data for one generation."""
     ep_property_batch_file = f"{ep_dir}/ep_property_{i_gen}.pkl"
-    td_shot_file = f"{ep_dir}/td_shot_{i_gen}.pkl"
-    mc_shot_file = f"{ep_dir}/mc_shot_{i_gen}.pkl"
     ep_simple_file = f"{ep_dir}/ep_simple.pkl"
-
     with open(ep_property_batch_file, "wb") as f:
         pickle.dump(ep_property_batch, f)
-
-    with open(td_shot_file, "wb") as f:
-        pickle.dump(td_replay_batch, f)
-
-    with open(mc_shot_file, "wb") as f:
-        pickle.dump(mc_replay_batch, f)
-
     with open(ep_simple_file, "wb") as f:
         pickle.dump(ep_simple_list, f)
+
+    if save_buffer and td_replay_batch is not None:
+        td_shot_file = f"{ep_dir}/td_shot_{i_gen}.pkl"
+        with open(td_shot_file, "wb") as f:
+            pickle.dump(td_replay_batch, f)
+
+    if save_buffer and mc_replay_batch is not None:
+        mc_shot_file = f"{ep_dir}/mc_shot_{i_gen}.pkl"
+        with open(mc_shot_file, "wb") as f:
+            pickle.dump(mc_replay_batch, f)
 
 
 def load_ep(ep_dir, i_gen):
@@ -368,9 +367,9 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
         torch.save(online_net.state_dict(), f"{save_dir}/net_{i_gen}.torch")
 
         save_ep(
-            ep_dir, i_gen, ep_property_batch,
-            td_replay_batch, mc_replay_batch, ep_simple_list
-        )
+            ep_dir, i_gen, ep_property_batch, ep_simple_list,
+            td_replay_batch=td_replay_batch, mc_replay_batch=mc_replay_batch,
+            save_buffer=True)
 
         et3 = time.time()
         print("training time:", et3 - et2, flush=True)

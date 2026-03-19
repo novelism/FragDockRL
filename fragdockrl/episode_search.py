@@ -111,6 +111,37 @@ def get_action(m, net, device, z_state, z_bb, batch_size_bb=256,
         idx = int(p.multinomial(num_samples=1))
     return idx
 
+def get_action_random(poss_bb_idx_id, *, eps=0.0, p_stop=0.0):
+    """
+    Random action selection with optional epsilon and stop probability.
+
+    Parameters
+    ----------
+    poss_bb_idx_id : sequence
+        Filtered global BB indices.
+    count_update : int
+        Number of successful updates (used for stop control).
+    eps : float
+        (Reserved) epsilon for future use.
+    p_stop : float
+        Probability of selecting stop (local idx = 0).
+
+    Returns
+    -------
+    int
+        Local index within filtered candidates.
+    """
+    n = len(poss_bb_idx_id)
+
+    if n == 0:
+        return 0  # stop
+
+    # stop
+    if p_stop > 0 and np.random.rand() < p_stop:
+        return 0
+
+    return int(np.random.randint(n))
+
 
 def validate_and_repair_product(m_candidate, m_prev):
     """
@@ -352,7 +383,7 @@ class EpisodeSearcher():
                 done = True
 
             else:
-                if count_update > 1:
+                if count_update > 0:
                     action = get_action(m, net, device, z_state, z_bb_poss,
                                         batch_size_bb, temperature=temperature,
                                         eps=eps, p_stop=p_stop)
@@ -410,6 +441,131 @@ class EpisodeSearcher():
         for _ in range(num_ep_batch):
             m = copy.copy(m_start)
             ep, smi = self.run_ep(m, z_bb, temperature=temperature)
+            ep_list_batch.append(ep)
+            smi_list_batch.append(smi)
+        return ep_list_batch, smi_list_batch
+
+
+class RandomEpisodeSearcher():
+    """Generate synthesis episodes by random
+
+    """
+
+    def __init__(self, bb_fp, df_reaction, df_bb,
+                 reactant_id_dict, mol_bb_dict, idx_bb_dict, *,
+                 num_ep_batch=200, eps=0.1, p_stop=0.2, max_step=5,
+                 penalty_score=-2.0):
+
+        self.bb_fp = bb_fp
+        self.df_reaction = df_reaction
+        self.df_bb = df_bb
+        self.reactant_id_dict = reactant_id_dict
+        self.mol_bb_dict = mol_bb_dict
+        self.idx_bb_dict = idx_bb_dict
+        self.eps = eps
+        self.p_stop = p_stop
+        self.max_step = max_step
+        self.penalty_score = penalty_score
+        self.num_ep_batch = num_ep_batch
+
+    def run_ep(self, m):
+        """Run a single synthesis episode starting from ``m``.
+
+        Parameters
+        ----------
+        m : rdkit.Chem.Mol
+            Initial molecule.
+
+        Returns
+        -------
+        list
+            Episode trajectory (same structure as legacy ``run_ep``).
+        """
+        df_reaction = self.df_reaction
+        df_bb = self.df_bb
+        reactant_id_dict = self.reactant_id_dict
+        mol_bb_dict = self.mol_bb_dict
+        eps = self.eps
+        p_stop = self.p_stop
+        max_step = self.max_step
+        penalty_score = self.penalty_score
+
+        ep_list = list()
+        ep_step = 0
+        done = False
+        count_update = 0
+
+        while True:
+            ep_step += 1
+            c_reaction_list = possible_reaction(m, reactant_id_dict,
+                                                df_reaction)
+            c_possible_reaction = [x[3] for x in c_reaction_list]
+            df_bb_tmp = df_bb[c_possible_reaction].any(axis=1)
+            if count_update > 0:
+                df_bb_tmp.iloc[0] = True
+            possible_reaction_bb_bool = np.array(df_bb_tmp.values,
+                                                 dtype=bool, copy=True)
+            poss_bb_idx_id = df_bb_tmp[df_bb_tmp].index
+
+
+            if ep_step >= max_step:
+                action_id = 0
+                done = True
+
+            elif len(poss_bb_idx_id) == 0:
+                action_id = 0
+                done = True
+
+            else:
+                if count_update > 0:
+                    action = get_action_random(poss_bb_idx_id, eps=eps, p_stop=p_stop)
+                else:
+                    action = get_action_random(poss_bb_idx_id, eps=0.0, p_stop=0.0)
+                action_id = poss_bb_idx_id[int(action)]
+
+            results = run_step(m, action_id, c_reaction_list, df_bb,
+                               df_reaction, mol_bb_dict,
+                               penalty_score=penalty_score)
+            m_new, step_reward, done, status_code = results
+
+            if status_code == 1:
+                count_update += 1
+
+            ep_dict = {"m": m,
+                       "action_id": action_id,
+                       "m_new": m_new,
+                       "step_reward": step_reward,
+                       "possible_reaction": possible_reaction_bb_bool,
+                       "done": done,
+                       "status_code": status_code,
+                       "count_update": count_update,
+                       "terminal_reward": 0.0,
+                       "reward": step_reward}
+
+            ep_list.append(ep_dict)
+            m = m_new
+
+            if done:
+                break
+
+        smi_terminal = Chem.MolToSmiles(m)
+        return ep_list, smi_terminal
+
+    def search_ep_batch(self, m_start, *, num_ep_batch=None):
+        """Generate a batch of episodes from the same starting molecule."""
+        if num_ep_batch is None:
+            if self.num_ep_batch is None:
+                raise ValueError(
+                    "num_ep_batch must be provided (init or call).")
+            num_ep_batch = self.num_ep_batch
+
+        bb_fp = self.bb_fp
+
+        ep_list_batch = list()
+        smi_list_batch = list()
+        for _ in range(num_ep_batch):
+            m = copy.copy(m_start)
+            ep, smi = self.run_ep(m)
             ep_list_batch.append(ep)
             smi_list_batch.append(smi)
         return ep_list_batch, smi_list_batch
