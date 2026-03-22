@@ -34,7 +34,8 @@ def main():
 
     parser.add_argument('-l', '--prepare_ligand_run', type=str, default='prepare_ligand4',
                         help='prepare ligand for pdb2pdbqt.')
-    parser.add_argument('--cutoff', type=float, default=None, help='RMSD cutoff')
+    parser.add_argument('--cutoff', type=float,
+                        default=None, help='RMSD cutoff')
     args = parser.parse_args()
 
     smi = args.smi

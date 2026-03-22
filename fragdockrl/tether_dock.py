@@ -3,11 +3,13 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 import copy
 import subprocess
+import time
 
 
 def gen_conf_ref_mol(m, m_ref_core, pdb_file, sd_file):
     m_h = Chem.AddHs(m)
-    check_error = AllChem.EmbedMolecule(m_h)
+    seed = int(time.time() * 1000) % (2**31)
+    check_error = AllChem.EmbedMolecule(m_h, randomSeed=seed)
     if check_error:
         return -1
 
@@ -226,7 +228,6 @@ def run_rdock(m, m_ref_dock, mol_id='molid', out_dir='tmp', rdock_run='rbdock',
                                       stderr=subprocess.STDOUT,
                                       timeout=timeout_docking,
                                       universal_newlines=True)
-
     suppl = Chem.SDMolSupplier(rdock_sd_file)
 
     score_list = list()
@@ -284,7 +285,6 @@ def run_rdock(m, m_ref_dock, mol_id='molid', out_dir='tmp', rdock_run='rbdock',
         score_list.append((m_id, dock_score, rmsd_core))
 
     score_list = np.array(score_list)
-
     if len(score_list) == 0:
         dock_score = 999.9
         rmsd_core = 99.9
@@ -300,9 +300,9 @@ def run_rdock(m, m_ref_dock, mol_id='molid', out_dir='tmp', rdock_run='rbdock',
     best_idx = np.argmin(sub[:, 1])
     jmin = int(sub[best_idx, 0])
     j, dock_score, rmsd_core = score_list[jmin]
-
     m_dock_h = m_dock_list[jmin]
     if m_dock_h is None:
         return (999.9, 99.9, 'docking pose conversion error')
     Chem.MolToPDBFile(m_dock_h, output_pdb_file, flavor=4)
     return (dock_score, rmsd_core, None)
+
