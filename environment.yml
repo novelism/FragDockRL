@@ -1,6 +1,7 @@
 name: fragdock
 channels:
   - conda-forge
+  - bioconda
   - defaults
 dependencies:
   - python=3.12
@@ -8,6 +9,7 @@ dependencies:
   - pandas=2.1.4
   - rdkit=2023.09.6
   - smina=2020.12.10
+  - rdock==24.04.204_legacy
   - pip
   - pip:
       - git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3.git
