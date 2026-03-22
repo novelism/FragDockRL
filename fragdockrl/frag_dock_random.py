@@ -106,9 +106,7 @@ def cal_frag_dock_random(config):
     line_out = f"search time: {et1 - st:.3f}"
     log_line(fp_log, line_out)
 
-    ep_property_batch0 = t_reward.compute(ep_list_batch0)
-    ep_property_batch = [(i, x[0], x[1])
-                         for i, x in enumerate(ep_property_batch0)]
+    ep_property_batch = t_reward.compute(ep_list_batch0)
 
     dock_score_batch = [x[2]["dock_score"] for x in ep_property_batch]
     mean_dock_reward = -np.mean(dock_score_batch)

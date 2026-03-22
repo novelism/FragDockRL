@@ -11,7 +11,7 @@ import copy
 import traceback
 
 
-def creator(q, data, num_sub_proc):
+def creator(q, data, num_sub_proc, start_idx=0):
     """
     Feed episode terminal molecules into multiprocessing queue.
 
@@ -25,10 +25,11 @@ def creator(q, data, num_sub_proc):
     num_sub_proc : int
         Number of worker processes. Used to push termination signals.
     """
-    for ep_idx, ep in enumerate(data):
+    for ep_idx_local, ep in enumerate(data):
+        ep_idx_global = start_idx + ep_idx_local
         end_shot = ep[-1]
         m_end = end_shot['m_new']
-        q.put((ep_idx, m_end))
+        q.put((ep_idx_global, m_end))
 
     for _ in range(num_sub_proc):
         q.put('DONE')
@@ -232,7 +233,7 @@ class TerminalReward():
 
         self.penalty_para_dict = penalty_para_dict
 
-    def compute(self, ep_list_batch):
+    def compute(self, ep_list_batch, start_idx=0):
         """
         Compute terminal rewards for a batch of episodes.
 
@@ -259,7 +260,7 @@ class TerminalReward():
 
         proc_master = Process(
             target=creator,
-            args=(q1, ep_list_batch, self.num_sub_proc)
+            args=(q1, ep_list_batch, self.num_sub_proc, start_idx)
         )
         proc_master.start()
 
@@ -284,11 +285,12 @@ class TerminalReward():
         q1.join_thread()
 
         ep_property_batch = list()
+        num_ep_batch = len(ep_list_batch)
+        for ep_idx_local in range(num_ep_batch):
+            ep_idx_global = start_idx + ep_idx_local
+            ep = copy.deepcopy(ep_list_batch[ep_idx_local])
 
-        for ep_idx in range(len(ep_list_batch)):
-            ep = copy.deepcopy(ep_list_batch[ep_idx])
-
-            p_dict = return_dict[ep_idx]
+            p_dict = return_dict[ep_idx_global]
 
             mol_wt = p_dict['mol_wt']
             logp = p_dict['logp']
@@ -317,6 +319,6 @@ class TerminalReward():
             p_dict['terminal_reward'] = terminal_reward_value
             ep[-1]['reward'] += terminal_reward_value
 
-            ep_property_batch.append((ep, p_dict))
+            ep_property_batch.append((ep_idx_global, ep, p_dict))
 
         return ep_property_batch
