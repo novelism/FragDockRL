@@ -10,6 +10,8 @@ dependencies:
   - rdkit=2023.09.6
   - smina=2020.12.10
   - rdock==24.04.204_legacy
+  - pyyaml=6.0.3
+  - matplotlib
   - pip
   - pip:
       - git+https://github.com/Valdes-Tresanco-MS/AutoDockTools_py3.git
