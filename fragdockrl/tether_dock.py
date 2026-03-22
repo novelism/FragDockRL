@@ -305,4 +305,3 @@ def run_rdock(m, m_ref_dock, mol_id='molid', out_dir='tmp', rdock_run='rbdock',
         return (999.9, 99.9, 'docking pose conversion error')
     Chem.MolToPDBFile(m_dock_h, output_pdb_file, flavor=4)
     return (dock_score, rmsd_core, None)
-
