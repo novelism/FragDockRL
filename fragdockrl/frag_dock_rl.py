@@ -33,28 +33,6 @@ def save_ep(ep_dir, i_gen, ep_property_batch, ep_simple_list, td_replay_batch=No
             pickle.dump(mc_replay_batch, f)
 
 
-def load_ep(ep_dir, i_gen):
-    """Load episode-related data for one generation."""
-    ep_property_batch_file = f"{ep_dir}/ep_property_{i_gen}.pkl"
-    td_shot_file = f"{ep_dir}/td_shot_{i_gen}.pkl"
-    mc_shot_file = f"{ep_dir}/mc_shot_{i_gen}.pkl"
-    ep_simple_file = f"{ep_dir}/ep_simple.pkl"
-
-    with open(ep_property_batch_file, "rb") as f:
-        ep_property_batch_list = pickle.load(f)
-
-    with open(td_shot_file, "rb") as f:
-        td_replay_batch = pickle.load(f)
-
-    with open(mc_shot_file, "rb") as f:
-        mc_replay_batch = pickle.load(f)
-
-    with open(ep_simple_file, "rb") as f:
-        ep_simple_list = pickle.load(f)
-
-    return ep_property_batch_list, td_replay_batch, mc_replay_batch, ep_simple_list
-
-
 def load_config(config_file):
     """Load YAML config file."""
     with open(config_file, "r", encoding="utf-8") as f:
@@ -163,6 +141,11 @@ def dedup_with_buffer(ep_list, smi_list, buffer_smi_set):
     return ep_out, smi_out
 
 
+def log_line(fp, line):
+    print(line, flush=True)
+    fp.write(line + "\n")
+
+
 def cal_frag_dock_rl(config, device, online_net, target_net,
                      optimizer, loss_function):
     """Run FragDockRL training using sectioned YAML config."""
@@ -203,6 +186,8 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
     gamma = training_cfg["gamma"]
     max_td_buffer = training_cfg["max_td_buffer"]
     max_mc_buffer = training_cfg["max_mc_buffer"]
+    use_mc = (max_mc_buffer != 0)
+
     max_epoch = run_cfg["max_epoch"]
 
     os.makedirs(ep_dir, exist_ok=True)
@@ -273,8 +258,9 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
     for i_gen in range(max_epoch):
         temperature = temperature0 * \
             np.power(temp_reduce, i_gen) + temperature_min
-        print("generation:", i_gen, "Temperature:", temperature)
-        fp_log.write(f"generation: {i_gen} Temperature: {temperature:.6f}\n")
+
+        line_out = f"generation: {i_gen} Temperature: {temperature:.6f}"
+        log_line(fp_log, line_out)
 
         st = time.time()
         start_idx = i_gen * num_ep_batch
@@ -291,20 +277,18 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
         n_epoch = len(ep_list_batch01)
         n_final = len(ep_list_batch0)
 
-        print(f"epoch dedup: {n_raw} -> {n_epoch} (removed {n_raw-n_epoch})")
-        fp_log.write(
-            f"epoch dedup: {n_raw} -> {n_epoch} (removed {n_raw-n_epoch})\n")
-        print(f"buffer dedup: {
-              n_epoch} -> {n_final} (removed {n_epoch-n_final})")
-        fp_log.write(
-            f"buffer dedup: {n_epoch} -> {n_final} (removed {n_epoch-n_final})\n")
-        print(f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})")
-        fp_log.write(
-            f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})\n")
+        line_out = f"epoch dedup: {n_raw} -> {n_epoch} (removed {n_raw-n_epoch})"
+        log_line(fp_log, line_out)
+
+        line_out = f"buffer dedup: {n_epoch} -> {n_final} (removed {n_epoch-n_final})"
+        log_line(fp_log, line_out)
+
+        line_out = f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})"
+        log_line(fp_log, line_out)
 
         et1 = time.time()
-        print("search time:", et1 - st)
-        fp_log.write(f"search time: {et1 - st:.3f}\n")
+        line_out = f"search time: {et1 - st:.3f}"
+        log_line(fp_log, line_out)
 
         ep_property_batch0 = t_reward.compute(ep_list_batch0)
         ep_property_batch = [
@@ -314,12 +298,13 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
 
         dock_score_batch = [x[2]["dock_score"] for x in ep_property_batch]
         mean_dock_reward = -np.mean(dock_score_batch)
-        print("dock_mean_reward:", i_gen, mean_dock_reward)
-        fp_log.write(f"dock_mean_reward: {i_gen} {mean_dock_reward:.3f}\n")
+
+        line_out = f"dock_mean_reward: {i_gen} {mean_dock_reward:.3f}"
+        log_line(fp_log, line_out)
 
         et2 = time.time()
-        print("docking time:", et2 - et1)
-        fp_log.write(f"docking time: {et2 - et1:.3f}\n")
+        line_out = f"docking time: {et2 - et1:.3f}"
+        log_line(fp_log, line_out)
 
         ep_simple_batch = utils.extract_ep_simple(ep_property_batch, i_gen)
         ep_simple_list += ep_simple_batch
@@ -330,8 +315,9 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
             td_replay_buffer = td_replay_buffer[-max_td_buffer:]
 
         buffer_smi_set = set(item["smi_terminal"] for item in td_replay_buffer)
-
-        mc_replay_batch = utils.shot_from_ep_for_mc(ep_property_batch, gamma)
+        mc_replay_batch = None
+        if use_mc:
+            mc_replay_batch = utils.shot_from_ep_for_mc(ep_property_batch, gamma)
         # If max_mc_buffer is None, do not accumulate MC replay across generations.
         # Only the current generation MC batch is used.
         if max_mc_buffer is None:
@@ -345,9 +331,12 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
 
         num_td_buffer = len(td_replay_buffer)
         num_mc_buffer = len(mc_replay_buffer)
-        print("mc buffer:", num_mc_buffer, "td buffer:", num_td_buffer)
-        fp_log.write(
-            f"mc buffer: {num_mc_buffer:.3f} td buffer: {num_td_buffer:.3f}\n")
+
+        parts = [f"td buffer: {num_td_buffer}"]
+        if use_mc:
+            parts.append(f"mc buffer: {num_mc_buffer}")
+        line_out = " ".join(parts)
+        log_line(fp_log, line_out)
 
         loss_list = rl_utils.train(
             td_replay_buffer, mc_replay_buffer,
@@ -359,21 +348,30 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
 
         for loss_g in loss_list:
             it, td_l, mc_l, n_td, n_mc = loss_g
-            line_out = "iter: %d TD_loss: %.5f MC_loss: %.5f TD: %d MC: %d" % (
-                it, td_l, mc_l, n_td, n_mc)
-            print(line_out)
-            fp_log.write(line_out+'\n')
+            parts = [
+                f"iter: {it}",
+                f"TD_loss: {td_l:.5f}",
+                f"TD: {n_td}"
+            ]
+            if use_mc and mc_l is not None:
+                parts.extend([
+                    f"MC_loss: {mc_l:.5f}",
+                    f"MC: {n_mc}"
+                ])
+            line_out = " ".join(parts)
+            log_line(fp_log, line_out)
 
         torch.save(online_net.state_dict(), f"{save_dir}/net_{i_gen}.torch")
 
         save_ep(
             ep_dir, i_gen, ep_property_batch, ep_simple_list,
-            td_replay_batch=td_replay_batch, mc_replay_batch=mc_replay_batch,
+            td_replay_batch=td_replay_batch,
+            mc_replay_batch=mc_replay_batch if use_mc else None,
             save_buffer=True)
 
         et3 = time.time()
-        print("training time:", et3 - et2, flush=True)
-        fp_log.write(f"training time: {et3 - et2:.3f}\n")
+        line_out = f"training time: {et3 - et2:.3f}"
+        log_line(fp_log, line_out)
 
     fp_log.close()
 

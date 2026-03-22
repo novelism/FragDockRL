@@ -8,7 +8,7 @@ import torch
 from rdkit import Chem
 
 from . import terminal_reward, utils, episode_search
-from .frag_dock_rl import save_ep, resolve_path, dedup_episodes_by_smiles
+from .frag_dock_rl import save_ep, resolve_path, log_line
 
 
 def cal_frag_dock_random(config):
@@ -23,7 +23,7 @@ def cal_frag_dock_random(config):
     start_smi = run_cfg["start_smi"]
     num_sub_proc = run_cfg["num_sub_proc"]
     ep_dir = run_cfg["ep_dir"]
-    save_dir = run_cfg["save_dir"]
+#    save_dir = run_cfg["save_dir"]
     core_pdb_file = run_cfg.get("core_pdb_file", "mol_ref_core.pdb")
     log_file = run_cfg.get("log_file", "run_log.txt")
 
@@ -39,7 +39,6 @@ def cal_frag_dock_random(config):
     num_ep_batch = search_cfg["num_ep_batch"]
 
     os.makedirs(ep_dir, exist_ok=True)
-    os.makedirs(save_dir, exist_ok=True)
     os.makedirs(docking_cfg["dock_dir"], exist_ok=True)
     os.makedirs(docking_cfg["tmp_dir"], exist_ok=True)
 
@@ -100,21 +99,12 @@ def cal_frag_dock_random(config):
     ep_list_batch0, smi_list_batch0 = ep_list_batch00, smi_list_batch00
 
     n_raw = len(ep_list_batch00)
-#    ep_list_batch0, smi_list_batch0 = dedup_episodes_by_smiles(
-#        ep_list_batch00, smi_list_batch00)
-
-#    n_final = len(ep_list_batch0)
-
-#    print(f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})")
-#    fp_log.write(
-#        f"total dedup: {n_raw} -> {n_final} (removed {n_raw-n_final})\n")
-
-    print(f"generated molecules: {n_raw}")
-    fp_log.write(f"generated molecules: {n_raw}\n")
+    line_out = f"generated molecules: {n_raw}"
+    log_line(fp_log, line_out)
 
     et1 = time.time()
-    print("search time:", et1 - st)
-    fp_log.write(f"search time: {et1 - st:.3f}\n")
+    line_out = f"search time: {et1 - st:.3f}"
+    log_line(fp_log, line_out)
 
     ep_property_batch0 = t_reward.compute(ep_list_batch0)
     ep_property_batch = [(i, x[0], x[1])
@@ -122,12 +112,12 @@ def cal_frag_dock_random(config):
 
     dock_score_batch = [x[2]["dock_score"] for x in ep_property_batch]
     mean_dock_reward = -np.mean(dock_score_batch)
-    print("dock_mean_reward:", mean_dock_reward)
-    fp_log.write(f"dock_mean_reward: {mean_dock_reward:.3f}\n")
+    line_out = f"dock_mean_reward: {i_gen} {mean_dock_reward:.3f}"
+    log_line(fp_log, line_out)
 
     et2 = time.time()
-    print("docking time:", et2 - et1)
-    fp_log.write(f"docking time: {et2 - et1:.3f}\n")
+    line_out = f"docking time: {et2 - et1:.3f}"
+    log_line(fp_log, line_out)
 
     ep_simple_batch = utils.extract_ep_simple(ep_property_batch, epoch=i_gen)
     ep_simple_list += ep_simple_batch

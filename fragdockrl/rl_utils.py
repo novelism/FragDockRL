@@ -240,7 +240,7 @@ def train(td_replay_buffer, mc_replay_buffer, online_net, target_net, device,
         loss_list.append((
             iteration,
             float(loss_td.detach().cpu()),
-            float(loss_mc.detach().cpu()) if loss_mc is not None else 0.0,
+            float(loss_mc.detach().cpu()) if loss_mc is not None else None,
             batch_size_td,
             batch_size_mc
         ))
