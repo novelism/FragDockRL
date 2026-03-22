@@ -1,5 +1,0 @@
-idx,docking_score,SMILES,bb_start,bb1,bb2,bb3
-5406,-12.0026817,CC(NC(=O)c1ccc(Cl)s1)(C(=O)Nc1cnc(-c2cccc(C(F)(F)F)c2)cn1)c1ccc(O)cc1,O=C(O)c1ccc(Cl)s1,CC(N)(C(=O)O)c1ccc(O)cc1.Cl,Cl.Nc1cnc(-c2cccc(C(F)(F)F)c2)cn1,
-36370,-11.540123,O=C(NC12CC3CC(CC(CC(=O)N4CCC5(CCN(Cc6ccccc6)C5)C4)(C3)C1)C2)c1ccc(Cl)s1,O=C(O)c1ccc(Cl)s1,Cl.NC12CC3CC(C1)CC(CC(=O)O)(C3)C2,c1ccc(CN2CCC3(CCNC3)C2)cc1,
-9213,-11.1635742,O=C(Nc1csnc1C(=O)Nc1cc(-c2cccc(F)c2F)n[nH]1)c1ccc(Cl)s1,O=C(O)c1ccc(Cl)s1,Cl.Nc1csnc1C(=O)O,Nc1cc(-c2cccc(F)c2F)n[nH]1,
-57341,-11.0568094,CC1CN(c2cccc3cnccc23)CCN1C(=O)c1cc(NC(=O)c2ccc(Cl)s2)ccc1F,O=C(O)c1ccc(Cl)s1,Nc1ccc(F)c(C(=O)O)c1,CC1CN(c2cccc3cnccc23)CCN1,
