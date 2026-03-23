@@ -1,5 +1,0 @@
-idx,docking_score,SMILES,bb_start,bb1,bb2,bb3
-4917,-9.35375977,N#Cc1c[nH]c(C(=O)NCC(F)(F)CN(C2CS(=O)(=O)Nc3ccc(F)cc32)C2CCCN3CCSCC23)n1,N#Cc1c[nH]c(C(=O)O)n1,Cl.Cl.NCC(F)(F)CN,Cl.O=C1CCCN2CCSCC12,O=C1CS(=O)(=O)Nc2ccc(F)cc21,
-71900,-9.30295563,N#Cc1c[nH]c(C(=O)NCC(Cc2ccc(C(F)(F)F)cc2)CN(c2ccccn2)S(=O)(=O)c2ccc(NN)nc2)n1,N#Cc1c[nH]c(C(=O)O)n1,NCC(CO)Cc1ccc(C(F)(F)F)cc1,NNc1ccc(S(=O)(=O)Nc2ccccn2)cn1,
-71859,-9.23854923,N#Cc1c[nH]c(C(=O)N2CCOC3(C2)C2CC4CC(C2)CC3C4)n1,N#Cc1c[nH]c(C(=O)O)n1,C1COC2(CN1)C1CC3CC(C1)CC2C3.Cl,,
-78118,-8.67515278,Cc1ccccc1CN1Cc2ccccc2CC1CN(C)C(=O)c1nc(C#N)c[nH]1,N#Cc1c[nH]c(C(=O)O)n1,CNCC1Cc2ccccc2CN1Cc1ccccc1C,,
