@@ -10,6 +10,7 @@ import copy
 
 import traceback
 
+
 def creator(q, data, num_sub_proc):
     """
     Feed episode terminal molecules into multiprocessing queue.
@@ -33,7 +34,7 @@ def creator(q, data, num_sub_proc):
         q.put('DONE')
 
 
-def run_docking(m_new, m_ref_dock, tmp_id, dock_para_dict, cut_rmsd):
+def run_docking(m_new, m_ref_dock, mol_id, tmp_id, dock_para_dict, cut_rmsd):
     """
     Execute docking using the backend specified in dock_para_dict.
 
@@ -60,6 +61,9 @@ def run_docking(m_new, m_ref_dock, tmp_id, dock_para_dict, cut_rmsd):
     tdock = dock_para_dict['tdock']
     if tdock == 'rdock':
         tmp_dir = dock_para_dict["tmp_dir"]
+        out_dir = dock_para_dict["dock_dir"]
+        keep_tmp = dock_para_dict.get("keep_tmp", False)
+
         rdock_run = dock_para_dict["rdock_run"]
         rdock_receptor_prm = dock_para_dict["rdock_receptor_prm"]
         rdock_prm = dock_para_dict["rdock_prm"]
@@ -70,14 +74,22 @@ def run_docking(m_new, m_ref_dock, tmp_id, dock_para_dict, cut_rmsd):
         timeout_docking = dock_para_dict["timeout_docking"]
 
         dock_score0, rmsd_core, error_code = tether_dock.run_rdock(
-            m_new, m_ref_dock, tmp_id, tmp_dir,
-            rdock_run, rdock_receptor_prm,
-            rdock_prm, rdock_nconf,
+            m_new,
+            m_ref_dock,
+            tmp_id=tmp_id,
+            output_id=mol_id,
+            tmp_dir=tmp_dir,
+            out_dir=out_dir,
+            rdock_run=rdock_run,
+            rdock_receptor_prm=rdock_receptor_prm,
+            rdock_prm=rdock_prm,
+            rdock_nconf=rdock_nconf,
             smina_run=smina_run,
             smina_config_file=smina_config_file,
             prepare_ligand_run=prepare_ligand_run,
             cutoff=cut_rmsd,
-            timeout_docking=timeout_docking
+            timeout_docking=timeout_docking,
+            keep_tmp=keep_tmp,
         )
     else:
         dock_score0, rmsd_core = 999.9, 99.9
@@ -117,7 +129,7 @@ def worker(q, m_ref_dock, cut_para_dict, dock_para_dict, return_dict):
     cut_rmsd = cut_para_dict['cut_rmsd']
 
     pid = os.getpid()
-    tmp_id = pid
+#    tmp_id = pid
 
     while True:
         qqq = q.get()
@@ -137,7 +149,7 @@ def worker(q, m_ref_dock, cut_para_dict, dock_para_dict, return_dict):
         num_heavy_atoms = m_new.GetNumHeavyAtoms()
 
         p_dict = {
-            'smi_terminal':smi_terminal,
+            'smi_terminal': smi_terminal,
             'mol_wt': mol_wt,
             'num_rb': num_rb,
             'logp': logp,
@@ -161,9 +173,10 @@ def worker(q, m_ref_dock, cut_para_dict, dock_para_dict, return_dict):
             continue
 
         try:
-            results = run_docking(m_new, m_ref_dock,
-                                                 tmp_id, dock_para_dict,
-                                                 cut_rmsd)
+            mol_id = str(ep_idx)
+            tmp_id = f"{ep_idx}_{pid}"
+            results = run_docking(m_new, m_ref_dock, mol_id, tmp_id,
+                                  dock_para_dict, cut_rmsd)
             dock_score0, rmsd_core, error_code = results
 
             if rmsd_core > cut_rmsd:
@@ -196,6 +209,7 @@ class TerminalReward():
     Multiprocessing workers reuse temporary files using PID-based
     identifiers to avoid excessive disk usage.
     """
+
     def __init__(self,
                  m_ref_dock,
                  cut_para_dict,
@@ -262,14 +276,12 @@ class TerminalReward():
             procs.append(proc)
             proc.start()
 
-
         proc_master.join()
         for proc in procs:
             proc.join()
 
         q1.close()
         q1.join_thread()
-
 
         ep_property_batch = list()
 
@@ -290,7 +302,8 @@ class TerminalReward():
                 terminal_reward_value += -w_logp*np.power((logp-2.0)/3.0, 2)
 
             if w_mw > 0:
-                terminal_reward_value += -w_mw*np.power((mol_wt-350.0)/150.0, 2)
+                terminal_reward_value += -w_mw * \
+                    np.power((mol_wt-350.0)/150.0, 2)
 
             if w_ha > 0:
                 if num_ha > 8:
@@ -304,6 +317,6 @@ class TerminalReward():
             p_dict['terminal_reward'] = terminal_reward_value
             ep[-1]['reward'] += terminal_reward_value
 
-            ep_property_batch.append((ep,p_dict))
+            ep_property_batch.append((ep, p_dict))
 
         return ep_property_batch

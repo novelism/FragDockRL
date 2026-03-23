@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem
@@ -188,120 +189,173 @@ def calc_rmsd_noalign(prb, ref, match, prb_cid, ref_cid):
     return rmsd
 
 
-def run_rdock(m, m_ref_dock, mol_id='molid', out_dir='tmp', rdock_run='rbdock',
-              rdock_receptor_prm='receptor.prm', rdock_prm='dock.prm', rdock_nconf=20,
-              smina_run='smina', smina_config_file='config.txt',
-              prepare_ligand_run='prepare_ligand4.py', cutoff=0.5,
-              timeout_docking=120):
+def run_rdock(m, m_ref_dock,
+              tmp_id='tmpid',
+              output_id='molid',
+              tmp_dir='tmp',
+              out_dir='dock',
+              rdock_run='rbdock',
+              rdock_receptor_prm='receptor.prm',
+              rdock_prm='dock.prm',
+              rdock_nconf=20,
+              smina_run='smina',
+              smina_config_file='config.txt',
+              prepare_ligand_run='prepare_ligand4.py',
+              cutoff=0.5,
+              timeout_docking=120,
+              keep_tmp=False):
 
-    test_pdb_file = out_dir + '/test_mol_%s.pdb' % mol_id
-    test_pdbqt_file = out_dir + '/test_mol_%s.pdbqt' % mol_id
-    test_sd_file = out_dir + '/test_mol_%s.sdf' % mol_id
-    prefix_rdock = out_dir + '/rdock_%s' % mol_id
-    rdock_sd_file = out_dir + '/rdock_%s.sd' % mol_id
-    tmp_pdb_file = out_dir + '/tmp_%s.pdb' % mol_id
-    tmp_pdbqt_file = out_dir + '/tmp_%s.pdbqt' % mol_id
-    tmp_out_pdbqt_file = out_dir + '/tmp_out_%s.pdbqt' % mol_id
-    tmp_out_pdb_file = out_dir + '/tmp_out_%s.pdb' % mol_id
-    output_pdb_file = out_dir + '/dock_%s.pdb' % mol_id
+    test_pdb_file = tmp_dir + '/test_mol_%s.pdb' % tmp_id
+#    test_pdbqt_file = tmp_dir + '/test_mol_%s.pdbqt' % tmp_id
+    test_sd_file = tmp_dir + '/test_mol_%s.sdf' % tmp_id
+    prefix_rdock = tmp_dir + '/rdock_%s' % tmp_id
+    rdock_sd_file = tmp_dir + '/rdock_%s.sd' % tmp_id
+    tmp_pdb_file = tmp_dir + '/tmp_%s.pdb' % tmp_id
+    tmp_pdbqt_file = tmp_dir + '/tmp_%s.pdbqt' % tmp_id
+    tmp_out_pdbqt_file = tmp_dir + '/tmp_out_%s.pdbqt' % tmp_id
+    tmp_out_pdb_file = tmp_dir + '/tmp_out_%s.pdb' % tmp_id
 
-    match_list = gen_conf_ref_mol(m, m_ref_dock, test_pdb_file, test_sd_file)
+    output_pdb_file = out_dir + '/dock_%s.pdb' % output_id
 
-    if match_list == -1:
-        dock_score = 999.9  # EmbedMolecule error
-        rmsd_core = 99.9
-        error_code = 'mol embedding_error'
-        return (dock_score, rmsd_core, error_code)
-    elif match_list == 0:
-        dock_score = 999.9
-        rmsd_core = 99.9
-        error_code = 'No match to ref'
-        return (dock_score, rmsd_core, error_code)
-    else:
-        num_match = len(match_list)
+    tmp_file_list = [
+        test_pdb_file,
+        test_sd_file,
+        rdock_sd_file,
+        tmp_pdb_file,
+        tmp_pdbqt_file,
+        tmp_out_pdbqt_file,
+        tmp_out_pdb_file,
+    ]
 
-    ref_model_dict = read_ref_pdb_ligand(test_pdb_file)
-    run_line_rdock = '%s -r %s -p %s -i %s -o %s -n %d' % (rdock_run,
-                                                           rdock_receptor_prm, rdock_prm, test_sd_file,
-                                                           prefix_rdock, rdock_nconf)
-    results = subprocess.check_output(run_line_rdock.split(),
-                                      stderr=subprocess.STDOUT,
-                                      timeout=timeout_docking,
-                                      universal_newlines=True)
-    suppl = Chem.SDMolSupplier(rdock_sd_file)
+    try:
+        match_list = gen_conf_ref_mol(
+            m, m_ref_dock, test_pdb_file, test_sd_file)
 
-    score_list = list()
-    m_dock_list = list()
-    for m_id, m_d in enumerate(suppl):
-        if m_d is None:
-            m_dock_list.append(None)
-            score_list.append((m_id, 999.9, 99.9))
-            continue
-        m_d_h = Chem.AddHs(m_d, addCoords=True)
-        Chem.MolToPDBFile(m_d_h, tmp_pdb_file, flavor=4)
-
-#        prepare_ligand_run = 'prepare_ligand4.py'
-        run_line_prepare_ligand = '%s -l %s -o %s' % (prepare_ligand_run,
-                                                      tmp_pdb_file,
-                                                      tmp_pdbqt_file)
-        run_line_prepare_ligand += ' -U nphs_lps'
-        results = subprocess.check_output(run_line_prepare_ligand.split(),
-                                          stderr=subprocess.STDOUT,
-                                          timeout=10,
-                                          universal_newlines=True)
-
-        run_line_smina_minimize = '%s --config %s --ligand %s --out %s --minimize' % (
-            smina_run, smina_config_file, tmp_pdbqt_file, tmp_out_pdbqt_file)
-
-        results_smina = subprocess.check_output(run_line_smina_minimize.split(),
-                                                stderr=subprocess.STDOUT,
-                                                timeout=20,
-                                                universal_newlines=True)
-
-        dock_score0 = None
-#        rmsd_local = 99.9
-        lines = results_smina.split('\n')
-        for line in lines:
-            if line.startswith('Affinity'):
-                dock_score0 = float(line.strip().split()[1])
-#            elif line.startswith('RMSD'):
-#                rmsd_local = float(line.strip().split()[1])
-
-        if dock_score0 is not None:
-            dock_score = dock_score0
-            ref_model_idx = m_id // rdock_nconf
-            ref_model = ref_model_dict[ref_model_idx+1]
-            m_dock_h = pdbqt_to_pdb_ref(input_pdbqt_file=tmp_out_pdbqt_file,
-                                        tmp_pdb_file=tmp_out_pdb_file,
-                                        ref_model=ref_model)
-            match = match_list[ref_model_idx]
-            rmsd_core = calc_rmsd_noalign(
-                m_dock_h, m_ref_dock, match, prb_cid=0, ref_cid=0)
-        else:
+        if match_list == -1:
+            dock_score = 999.9  # EmbedMolecule error
+            rmsd_core = 99.9
+            error_code = 'mol embedding_error'
+            return (dock_score, rmsd_core, error_code)
+        elif match_list == 0:
             dock_score = 999.9
             rmsd_core = 99.9
-            m_dock_h = None
-        m_dock_list.append(m_dock_h)
-        score_list.append((m_id, dock_score, rmsd_core))
+            error_code = 'No match to ref'
+            return (dock_score, rmsd_core, error_code)
+        else:
+            num_match = len(match_list)
 
-    score_list = np.array(score_list)
-    if len(score_list) == 0:
-        dock_score = 999.9
-        rmsd_core = 99.9
-        error_code = 'docking error'
-        return (dock_score, rmsd_core, error_code)
+        ref_model_dict = read_ref_pdb_ligand(test_pdb_file)
+        run_line_rdock = '%s -r %s -p %s -i %s -o %s -n %d' % (
+            rdock_run,
+            rdock_receptor_prm,
+            rdock_prm,
+            test_sd_file,
+            prefix_rdock,
+            rdock_nconf,
+        )
+        results = subprocess.check_output(
+            run_line_rdock.split(),
+            stderr=subprocess.STDOUT,
+            timeout=timeout_docking,
+            universal_newlines=True
+        )
 
-    if cutoff is None:
-        sub = score_list
-    else:
-        mask = score_list[:, 2] < cutoff
-        sub = score_list[mask] if np.any(mask) else score_list
+        suppl = Chem.SDMolSupplier(rdock_sd_file)
 
-    best_idx = np.argmin(sub[:, 1])
-    jmin = int(sub[best_idx, 0])
-    j, dock_score, rmsd_core = score_list[jmin]
-    m_dock_h = m_dock_list[jmin]
-    if m_dock_h is None:
-        return (999.9, 99.9, 'docking pose conversion error')
-    Chem.MolToPDBFile(m_dock_h, output_pdb_file, flavor=4)
-    return (dock_score, rmsd_core, None)
+        score_list = list()
+        m_dock_list = list()
+
+        for m_id, m_d in enumerate(suppl):
+            if m_d is None:
+                m_dock_list.append(None)
+                score_list.append((m_id, 999.9, 99.9))
+                continue
+
+            m_d_h = Chem.AddHs(m_d, addCoords=True)
+            Chem.MolToPDBFile(m_d_h, tmp_pdb_file, flavor=4)
+
+            run_line_prepare_ligand = '%s -l %s -o %s' % (
+                prepare_ligand_run,
+                tmp_pdb_file,
+                tmp_pdbqt_file
+            )
+            run_line_prepare_ligand += ' -U nphs_lps'
+            results = subprocess.check_output(
+                run_line_prepare_ligand.split(),
+                stderr=subprocess.STDOUT,
+                timeout=10,
+                universal_newlines=True
+            )
+
+            run_line_smina_minimize = '%s --config %s --ligand %s --out %s --minimize' % (
+                smina_run,
+                smina_config_file,
+                tmp_pdbqt_file,
+                tmp_out_pdbqt_file
+            )
+            results_smina = subprocess.check_output(
+                run_line_smina_minimize.split(),
+                stderr=subprocess.STDOUT,
+                timeout=20,
+                universal_newlines=True
+            )
+
+            dock_score0 = None
+            lines = results_smina.split('\n')
+            for line in lines:
+                if line.startswith('Affinity'):
+                    dock_score0 = float(line.strip().split()[1])
+
+            if dock_score0 is not None:
+                dock_score = dock_score0
+                ref_model_idx = m_id // rdock_nconf
+                ref_model = ref_model_dict[ref_model_idx + 1]
+                m_dock_h = pdbqt_to_pdb_ref(
+                    input_pdbqt_file=tmp_out_pdbqt_file,
+                    tmp_pdb_file=tmp_out_pdb_file,
+                    ref_model=ref_model
+                )
+                match = match_list[ref_model_idx]
+                rmsd_core = calc_rmsd_noalign(
+                    m_dock_h, m_ref_dock, match, prb_cid=0, ref_cid=0
+                )
+            else:
+                dock_score = 999.9
+                rmsd_core = 99.9
+                m_dock_h = None
+
+            m_dock_list.append(m_dock_h)
+            score_list.append((m_id, dock_score, rmsd_core))
+
+        score_list = np.array(score_list)
+        if len(score_list) == 0:
+            dock_score = 999.9
+            rmsd_core = 99.9
+            error_code = 'docking error'
+            return (dock_score, rmsd_core, error_code)
+
+        if cutoff is None:
+            sub = score_list
+        else:
+            mask = score_list[:, 2] < cutoff
+            sub = score_list[mask] if np.any(mask) else score_list
+
+        best_idx = np.argmin(sub[:, 1])
+        jmin = int(sub[best_idx, 0])
+        j, dock_score, rmsd_core = score_list[jmin]
+        m_dock_h = m_dock_list[jmin]
+
+        if m_dock_h is None:
+            return (999.9, 99.9, 'docking pose conversion error')
+
+        Chem.MolToPDBFile(m_dock_h, output_pdb_file, flavor=4)
+        return (dock_score, rmsd_core, None)
+
+    finally:
+        if not keep_tmp:
+            for file_path in tmp_file_list:
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                except Exception:
+                    pass

@@ -10,7 +10,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from rdkit import Chem
-
 from . import terminal_reward, model, rl_utils, utils, episode_search
 
 
@@ -208,6 +207,7 @@ def cal_frag_dock_rl(config, device, online_net, target_net,
 
     os.makedirs(ep_dir, exist_ok=True)
     os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(docking_cfg["dock_dir"], exist_ok=True)
     os.makedirs(docking_cfg["tmp_dir"], exist_ok=True)
 
     # IMPORTANT:

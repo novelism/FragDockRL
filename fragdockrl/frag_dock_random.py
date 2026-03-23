@@ -40,6 +40,7 @@ def cal_frag_dock_random(config):
 
     os.makedirs(ep_dir, exist_ok=True)
     os.makedirs(save_dir, exist_ok=True)
+    os.makedirs(docking_cfg["dock_dir"], exist_ok=True)
     os.makedirs(docking_cfg["tmp_dir"], exist_ok=True)
 
     # IMPORTANT:
