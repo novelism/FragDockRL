@@ -319,17 +319,6 @@ def extract_ep_simple(ep_property_batch, epoch):
     for ep0 in ep_property_batch:
         ep_idx, ep_s, p_dict = ep0
 
-#        dock_score = p_dict['dock_score']
-#        dock_rmsd = p_dict['dock_RMSD']
-#        mol_wt = p_dict['mol_wt']
-#        num_rb = p_dict['num_rb']
-#        logp = p_dict['logp']
-#        num_hd = p_dict['num_hd']
-#        num_ha = p_dict['num_ha']
-#        num_ring = p_dict['num_ring']
-#        tpsa = p_dict['tpsa']
-#        num_heavy_atoms = p_dict['num_heavy_atoms']
-
         num_step = len(ep_s)
 
         simple_ep_list = list()
@@ -344,11 +333,7 @@ def extract_ep_simple(ep_property_batch, epoch):
             simple_ep_list.append([action_id, status_code])
 
         shot_end = ep_s[num_step-1]
-#        m_final = shot_end['m_new']
-#        smi_final = Chem.MolToSmiles(m_final)
         final_reward = shot_end['reward']
-#        p_list.append([ep_idx, cumulative_reward, final_reward, dock_score, dock_rmsd,
-#                      mol_wt, num_rb, logp, num_hd, num_ha, num_ring, tpsa, num_heavy_atoms])
 
         simple_dict = dict(p_dict)
         simple_dict['ep_idx'] = ep_idx
@@ -356,8 +341,6 @@ def extract_ep_simple(ep_property_batch, epoch):
         simple_dict['ep'] = simple_ep_list
         simple_dict['final_reward'] = final_reward
         simple_dict['cumulative_reward'] = cumulative_reward
-#        simple_dict['SMILES'] = smi_final
 
         simple_list.append(simple_dict)
-#    property_list = np.array(p_list)
-    return simple_list  # , property_list
+    return simple_list

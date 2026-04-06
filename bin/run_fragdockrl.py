@@ -1,16 +1,9 @@
 #!/usr/bin/env python
-
 import argparse
-
+from fragdockrl.frag_dock_rl import (load_config, get_device, cal_frag_dock_rl,
+                                     build_network_and_optimizer)
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.error')
-
-from fragdockrl.frag_dock_rl import (
-    load_config,
-    get_device,
-    build_network_and_optimizer,
-    cal_frag_dock_rl,
-)
 
 
 def parse_args():

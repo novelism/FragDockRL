@@ -111,6 +111,7 @@ def get_action(m, net, device, z_state, z_bb, batch_size_bb=256,
         idx = int(p.multinomial(num_samples=1))
     return idx
 
+
 def get_action_random(poss_bb_idx_id, *, eps=0.0, p_stop=0.0):
     """
     Random action selection with optional epsilon and stop probability.
@@ -451,17 +452,15 @@ class RandomEpisodeSearcher():
 
     """
 
-    def __init__(self, bb_fp, df_reaction, df_bb,
-                 reactant_id_dict, mol_bb_dict, idx_bb_dict, *,
+    def __init__(self, df_reaction, df_bb,
+                 reactant_id_dict, mol_bb_dict, *,
                  num_ep_batch=200, eps=0.1, p_stop=0.2, max_step=5,
                  penalty_score=-2.0):
 
-        self.bb_fp = bb_fp
         self.df_reaction = df_reaction
         self.df_bb = df_bb
         self.reactant_id_dict = reactant_id_dict
         self.mol_bb_dict = mol_bb_dict
-        self.idx_bb_dict = idx_bb_dict
         self.eps = eps
         self.p_stop = p_stop
         self.max_step = max_step
@@ -507,7 +506,6 @@ class RandomEpisodeSearcher():
                                                  dtype=bool, copy=True)
             poss_bb_idx_id = df_bb_tmp[df_bb_tmp].index
 
-
             if ep_step >= max_step:
                 action_id = 0
                 done = True
@@ -518,9 +516,11 @@ class RandomEpisodeSearcher():
 
             else:
                 if count_update > 0:
-                    action = get_action_random(poss_bb_idx_id, eps=eps, p_stop=p_stop)
+                    action = get_action_random(
+                        poss_bb_idx_id, eps=eps, p_stop=p_stop)
                 else:
-                    action = get_action_random(poss_bb_idx_id, eps=0.0, p_stop=0.0)
+                    action = get_action_random(
+                        poss_bb_idx_id, eps=0.0, p_stop=0.0)
                 action_id = poss_bb_idx_id[int(action)]
 
             results = run_step(m, action_id, c_reaction_list, df_bb,
@@ -558,8 +558,6 @@ class RandomEpisodeSearcher():
                 raise ValueError(
                     "num_ep_batch must be provided (init or call).")
             num_ep_batch = self.num_ep_batch
-
-        bb_fp = self.bb_fp
 
         ep_list_batch = list()
         smi_list_batch = list()

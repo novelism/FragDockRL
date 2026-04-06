@@ -15,6 +15,7 @@ setup(
     scripts=[
         "bin/prepare_core.py",
         "bin/run_fragdock_random.py",
+        "bin/run_fragdock_bs.py",
         "bin/run_fragdockrl.py",
         "bin/run_tdock.py",
     ],
