@@ -20,9 +20,6 @@ data:
 
 search:
   penalty_score: -2.0            # Score penalty applied when constraints are violated
-  max_step: 3                    # Number of sequential assembly steps (tree depth)
-  num_expand: 6666               # Max number of successful BB expansions per node (docking budget per node)
-  beam_width: 10                 # Number of top molecules kept at each step
 
 docking:
   tdock: "rdock"                 # Docking engine (rdock or smina)

@@ -12,7 +12,7 @@ from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.error')
 
 
-def search_1step(m, num_expand, trial_tree_dict0, step_idx, ep_list_p,
+def search_1step_random(m, num_expand, trial_tree_dict0, step_idx, ep_list_p,
                  reactant_id_dict, df_bb, df_reaction, mol_bb_dict, penalty_score):
 
     c_reaction_list = episode_search.possible_reaction(
@@ -154,8 +154,10 @@ def cal_frag_dock_beam_search(config):
             st = time.time()
             trial_tree_dict0 = trial_tree_dict
             m = m_start
-            results = search_1step(m, num_expand, trial_tree_dict0, step_index, ep_list_p,
-                                   reactant_id_dict, df_bb, df_reaction, mol_bb_dict, penalty_score)
+            results = search_1step_random(m, num_expand, trial_tree_dict0,
+                                          step_index, ep_list_p,
+                                          reactant_id_dict, df_bb, df_reaction,
+                                          mol_bb_dict, penalty_score)
             ep_list_step_batch0, smi_new_list = results
 
             n_raw = len(ep_list_step_batch0)
@@ -224,8 +226,11 @@ def cal_frag_dock_beam_search(config):
 #                start_idx = step_index*num_expand*beam_width + num_expand0*idx_branch
                 start_idx = step_index*num_expand + num_expand0*idx_branch
 
-                results = search_1step(m, num_expand0, trial_tree_dict0, step_index, ep_list_p,
-                                       reactant_id_dict, df_bb, df_reaction, mol_bb_dict, penalty_score)
+                results = search_1step_random(m, num_expand0, trial_tree_dict0,
+                                              step_index, ep_list_p,
+                                              reactant_id_dict, df_bb,
+                                              df_reaction, mol_bb_dict,
+                                              penalty_score)
                 ep_list_step_batch0, smi_new_list = results
 
                 n_raw = len(ep_list_step_batch0)
